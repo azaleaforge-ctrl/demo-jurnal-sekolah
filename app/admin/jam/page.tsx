@@ -23,7 +23,7 @@ function JamTable({ kind, title, rows, loading, onAdd, onEdit, onDel }: {
   onAdd: () => void; onEdit: (r: Jam) => void; onDel: (r: Jam) => void;
 }) {
   return (
-    <Card>
+    <Card className="min-w-0">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-display font-bold">{title}</h2>
         <Button className="max-sm:w-full" onClick={onAdd}><Plus size={15} /> Jam {kind === "mulai" ? "Mulai" : "Selesai"}</Button>

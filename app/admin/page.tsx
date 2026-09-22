@@ -116,7 +116,7 @@ export default function AdminHome() {
         )}
 
         <div className="mt-4 grid gap-3 lg:grid-cols-2">
-          <Card>
+          <Card className="min-w-0">
             <h2 className="font-display font-bold">Tren kehadiran siswa harian</h2>
             <div className="mt-2 h-56 text-xs sm:h-64">
               <ResponsiveContainer width="100%" height="100%">
@@ -133,7 +133,7 @@ export default function AdminHome() {
             </div>
           </Card>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-            <Card>
+            <Card className="min-w-0">
               <h2 className="font-display font-bold">Status guru</h2>
               <div className="mt-2 h-56 text-xs sm:h-64">
                 <ResponsiveContainer width="100%" height="100%">
@@ -146,7 +146,7 @@ export default function AdminHome() {
                 </ResponsiveContainer>
               </div>
             </Card>
-            <Card>
+            <Card className="min-w-0">
               <h2 className="font-display font-bold">Status siswa</h2>
               <div className="mt-2 h-56 text-xs sm:h-64">
                 <ResponsiveContainer width="100%" height="100%">
@@ -163,7 +163,7 @@ export default function AdminHome() {
         </div>
 
         <div className="mt-4 grid gap-3 lg:grid-cols-5">
-          <Card className="lg:col-span-3">
+          <Card className="lg:col-span-3 min-w-0">
             <h2 className="font-display font-bold">Status per guru — {tanggal}</h2>
             <div className="mt-3">
               <Table head={["Guru", "Mapel", "Status", "Aksi"]}>
@@ -184,7 +184,7 @@ export default function AdminHome() {
               </Table>
             </div>
           </Card>
-          <Card className="lg:col-span-2">
+          <Card className="lg:col-span-2 min-w-0">
             <h2 className="font-display font-bold">Agregat per kelas</h2>
             <div className="mt-3">
               <Table head={["Kelas", "H", "S", "I", "A"]}>
@@ -202,7 +202,7 @@ export default function AdminHome() {
           </Card>
         </div>
 
-        <div ref={feedRef} className="mt-4 scroll-mt-24">
+        <div ref={feedRef} className="mt-4 min-w-0 scroll-mt-24">
           <Card>
             <h2 className="font-display font-bold">Jurnal masuk terbaru</h2>
             <div className="mt-3 space-y-2">

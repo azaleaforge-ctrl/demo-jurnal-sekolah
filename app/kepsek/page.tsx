@@ -93,7 +93,7 @@ export default function KepsekPage() {
         )}
 
         <div className="mt-4 grid gap-3 lg:grid-cols-2">
-          <Card>
+          <Card className="min-w-0">
             <h2 className="font-display font-bold">Tren kehadiran harian</h2>
             <div className="mt-2 h-56 text-xs sm:h-64">
               <ResponsiveContainer width="100%" height="100%">
@@ -109,7 +109,7 @@ export default function KepsekPage() {
               </ResponsiveContainer>
             </div>
           </Card>
-          <Card>
+          <Card className="min-w-0">
             <h2 className="font-display font-bold">Komposisi status</h2>
             <div className="mt-2 h-56 text-xs sm:h-64">
               <ResponsiveContainer width="100%" height="100%">
@@ -124,7 +124,7 @@ export default function KepsekPage() {
           </Card>
         </div>
 
-        <Card className="mt-4">
+        <Card className="mt-4 min-w-0">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h2 className="font-display font-bold">Rincian jurnal & absensi</h2>
