@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Camera, ChevronLeft, ChevronRight, Eraser, Check, Loader2, FileUp } from "lucide-react";
+import { Camera, ChevronLeft, ChevronRight, Eraser, Check, Loader2, FileUp, Search, X } from "lucide-react";
 import SignatureCanvas from "react-signature-canvas";
 import { Guard, useAuth } from "@/src/lib/auth";
 import { AppShell } from "@/src/components/layout";
@@ -92,6 +92,7 @@ function Wizard() {
   const [photo, setPhoto] = useState<string>("");
   const [compressing, setCompressing] = useState(false);
   const [absensi, setAbsensi] = useState<Record<string, Status>>({});
+  const [cariSiswa, setCariSiswa] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveStage, setSaveStage] = useState("");
   const [shake, setShake] = useState(0);
@@ -102,6 +103,11 @@ function Wizard() {
   const sigRef = useRef<any>(null);
 
   const siswa = useMemo(() => students.filter((s) => !classId || s.class_id === classId).sort(byName()), [classId]);
+  const cocokSiswa = useMemo(() => {
+    const q = cariSiswa.trim().toLowerCase();
+    if (!q) return siswa;
+    return siswa.filter((s) => `${s.name} ${s.nisn || ""}`.toLowerCase().includes(q));
+  }, [siswa, cariSiswa]);
   const matList = useMemo(() => materials.filter((m) => !subjectId || m.subject_id === subjectId), [subjectId]);
   const material = useManual ? customMat : matList.find((m) => m.id === materialId)?.title || customMat;
 
@@ -500,8 +506,22 @@ function Wizard() {
                 <div>
                   <h2 className="font-display text-lg font-bold">Absensi siswa — {kelasName}</h2>
                   <p className="text-sm text-slate-500">Hadir terpilih otomatis. Ubah yang sakit / izin / alpha.</p>
-                  <ul className="mt-3 max-h-[320px] space-y-2 overflow-y-auto pr-1">
-                    {(siswa.length ? siswa : [{ id: "d1", name: "Belum ada siswa di kelas ini", nisn: "-" }]).map((s: any) => (
+                  <div className="relative mt-3">
+                    <Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      value={cariSiswa} onChange={(e) => setCariSiswa(e.target.value)} placeholder="Cari nama…"
+                      aria-label="Cari nama siswa"
+                      className="w-full min-h-[44px] rounded-xl border border-slate-200 bg-white pl-10 pr-10 text-sm outline-none placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                    />
+                    {cariSiswa && (
+                      <button type="button" onClick={() => setCariSiswa("")} aria-label="Hapus pencarian" className="absolute right-2.5 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+                        <X size={15} />
+                      </button>
+                    )}
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">{cocokSiswa.length} dari {siswa.length} siswa</p>
+                  <ul className="mt-2 max-h-[320px] space-y-2 overflow-y-auto pr-1">
+                    {(siswa.length ? cocokSiswa : [{ id: "d1", name: "Belum ada siswa di kelas ini", nisn: "-" }]).map((s: any) => (
                       <li key={s.id} className="rounded-2xl border border-slate-100 bg-slate-50/50 p-3">
                         <p className="text-sm font-bold">{s.name} <span className="font-normal text-slate-400">· {s.nisn}</span></p>
                         <div className="mt-2 grid grid-cols-4 gap-1.5">
@@ -518,6 +538,9 @@ function Wizard() {
                       </li>
                     ))}
                   </ul>
+                  {siswa.length > 0 && cocokSiswa.length === 0 && (
+                    <p className="mt-2 rounded-xl bg-slate-50 p-4 text-center text-sm text-slate-500">Tidak ada siswa yang cocok dengan “{cariSiswa.trim()}”.</p>
+                  )}
                 </div>
               )}
             </motion.div>

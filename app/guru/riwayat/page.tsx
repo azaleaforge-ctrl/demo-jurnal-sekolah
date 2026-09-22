@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { FileText, Download, ImageIcon, PenLine, Pencil } from "lucide-react";
+import { FileText, Download, ImageIcon, PenLine, Pencil, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { Guard, useAuth } from "@/src/lib/auth";
 import { AppShell } from "@/src/components/layout";
@@ -36,6 +36,14 @@ export default function RiwayatPage() {
   const [editing, setEditing] = useState<Row | null>(null);
   const [att, setAtt] = useState<Record<string, AttStatus>>({});
   const [savingAtt, setSavingAtt] = useState(false);
+  const [cari, setCari] = useState("");
+  const daftar = editing ? rosterFor(editing) : [];
+  const cocok = useMemo(() => {
+    const q = cari.trim().toLowerCase();
+    if (!q) return daftar;
+    return daftar.filter((s) => `${s.name} ${s.nisn || ""}`.toLowerCase().includes(q));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cari, editing]);
   // Lingkup tampil default bulan berjalan + "Muat lagi" mundur per bulan.
   const [since, setSince] = useState(() => {
     const d = new Date();
@@ -156,6 +164,7 @@ export default function RiwayatPage() {
       init[a.student_id] = (["hadir", "sakit", "izin", "alpha"] as AttStatus[]).includes(k as AttStatus) ? (k as AttStatus) : "hadir";
     });
     setAtt(init);
+    setCari("");
     setEditing(j);
   }
 
@@ -276,8 +285,22 @@ export default function RiwayatPage() {
         {zoom && <Lightbox src={zoom.src} label={zoom.label} onClose={() => setZoom(null)} />}
         <Modal open={!!editing} onClose={() => setEditing(null)} title={`Ubah absensi — ${editing?.subject} · ${editing?.class}`}>
           <p className="text-sm text-slate-500">{editing?.date} · hanya absensi siswa yang bisa diubah.</p>
-          <ul className="mt-3 max-h-[50dvh] space-y-2 overflow-y-auto overscroll-contain pr-1">
-            {editing && rosterFor(editing).map((s) => (
+          <div className="relative mt-3">
+            <Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              value={cari} onChange={(e) => setCari(e.target.value)} placeholder="Cari nama…"
+              aria-label="Cari nama siswa"
+              className="w-full min-h-[44px] rounded-xl border border-slate-200 bg-white pl-10 pr-10 text-sm outline-none placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+            />
+            {cari && (
+              <button type="button" onClick={() => setCari("")} aria-label="Hapus pencarian" className="absolute right-2.5 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+                <X size={15} />
+              </button>
+            )}
+          </div>
+          <p className="mt-2 text-xs text-slate-500">{cocok.length} dari {daftar.length} siswa</p>
+          <ul className="mt-2 max-h-[50dvh] space-y-2 overflow-y-auto overscroll-contain pr-1">
+            {cocok.map((s) => (
               <li key={s.id} className="rounded-2xl border border-slate-100 bg-slate-50/50 p-3">
                 <p className="truncate text-sm font-bold">{s.name} <span className="font-normal text-slate-400">· {s.nisn}</span></p>
                 <div className="mt-2 grid grid-cols-4 gap-1.5">
@@ -293,8 +316,11 @@ export default function RiwayatPage() {
                 </div>
               </li>
             ))}
-            {editing && rosterFor(editing).length === 0 && (
+            {editing && daftar.length === 0 && (
               <p className="rounded-xl bg-slate-50 p-4 text-center text-sm text-slate-500">Tidak ada data siswa untuk kelas ini.</p>
+            )}
+            {editing && daftar.length > 0 && cocok.length === 0 && (
+              <p className="rounded-xl bg-slate-50 p-4 text-center text-sm text-slate-500">Tidak ada siswa yang cocok dengan “{cari.trim()}”.</p>
             )}
           </ul>
           <div className="mt-5 flex gap-2">
