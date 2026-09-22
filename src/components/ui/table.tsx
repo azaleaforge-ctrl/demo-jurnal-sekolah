@@ -1,7 +1,7 @@
 export function Table({ head, children }: { head: string[]; children: React.ReactNode }) {
   return (
     <div className="max-w-full overflow-x-auto overscroll-x-contain rounded-2xl border border-slate-100 bg-white shadow-soft">
-      <table className="w-full min-w-[560px] text-left text-sm">
+      <table className="w-max min-w-full text-left text-sm">
         <thead>
           <tr className="border-b border-slate-100 bg-slate-50/70 text-xs uppercase tracking-wide text-slate-500">
             {head.map((h) => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}
