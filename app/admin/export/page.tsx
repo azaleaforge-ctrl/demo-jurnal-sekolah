@@ -9,8 +9,8 @@ import { Button } from "@/src/components/ui/button";
 import { Skeleton, Spinner } from "@/src/components/ui/misc";
 import { cn } from "@/src/lib/utils";
 import { downloadRekap, filterRekap, type RekapTipe, type ExportDir, type PeriodeMode } from "@/src/lib/export";
-import { getSharedFeed, getFeedFirestore, normalizeRemote, type FeedEntry } from "@/src/lib/feed";
-import { useDirectory, getSetting, mockSetting } from "@/src/lib/db";
+import { getSharedFeed, mapJournalEntry, byNewest, normalizeRemote, type FeedEntry } from "@/src/lib/feed";
+import { subscribeFeedJournals, useDirectory, getSetting, mockSetting } from "@/src/lib/db";
 import { adminFeed } from "@/src/lib/api";
 import { todayID } from "@/src/lib/utils";
 
@@ -48,13 +48,29 @@ export default function ExportPage() {
 
   useEffect(() => {
     if (dir.loading) return;
+    let on = true;
+    let unsub: (() => void) | null = null;
     (async () => {
       try {
         setFeed((await adminFeed({ tanggal_dari: dari, sampai })).map((r: any) => normalizeRemote(r)));
         return;
       } catch {}
+      // Realtime lingkup rentang terpilih — export selalu dari data terbaru.
       try {
-        setFeed(await getFeedFirestore(300, { since: dari || undefined }));
+        unsub = subscribeFeedJournals([["date", ">=", dari || "0000-00-00"]],
+          (js, atts) => {
+            if (!on) return;
+            const d = {
+              classes: dir.classes, subjects: dir.subjects, users: dir.users,
+              materials: dir.materials, schedules: dir.schedules,
+            };
+            setFeed(js.map((j) => mapJournalEntry(j, d, atts)).sort(byNewest));
+          },
+          () => {
+            if (!on) return;
+            setFeed(getSharedFeed());
+            toast.info("Mode demo — memakai data lokal.");
+          });
         return;
       } catch {}
       setFeed(getSharedFeed());
@@ -63,8 +79,9 @@ export default function ExportPage() {
     getSetting()
       .then((s) => { if (s) setSch({ school_name: s.school_name, academic_year: s.academic_year, semester: s.semester.toLowerCase() === "genap" ? "Genap" : "Ganjil", principal_name: s.principal_name }); })
       .catch(() => {});
+    return () => { on = false; unsub?.(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dir.loading]);
+  }, [dir.loading, dir, dari]);
 
   const xdir: ExportDir = useMemo(() => ({
     school: { name: sch.school_name, academicYear: sch.academic_year, semester: sch.semester.toLowerCase() === "genap" ? "Genap" : "Ganjil", principalName: (sch as any).principal_name },

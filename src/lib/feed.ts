@@ -156,6 +156,76 @@ export function normalizeRemote(r: any, src = "laravel"): FeedEntry {
 // + sort client + slice limitN. Attendances hanya untuk journal tampil (chunk `in`).
 export type FeedDir = { classes: Doc[]; subjects: Doc[]; users: Doc[]; materials: Doc[]; schedules: Doc[] };
 
+// Awal pekan (Senin) lokal format YYYY-MM-DD — lingkup default beban guru.
+export function weekStartISO(d = new Date()): string {
+  const m = new Date(d);
+  m.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${m.getFullYear()}-${p(m.getMonth() + 1)}-${p(m.getDate())}`;
+}
+
+// JP per jurnal = rentang order slot (end-start+1); fallback 1 bila legacy/tak diketahui.
+// Definisi: 1 slot = 1 JP.
+export function jpOf(
+  j: { schedule_id?: string; schedule_end_id?: string | null },
+  schedules: { id: string; order?: number; kind?: string }[],
+): number {
+  const s = schedules.find((x) => x.id === j.schedule_id);
+  if (!s || !s.kind) return 1;
+  const e = j.schedule_end_id ? schedules.find((x) => x.id === j.schedule_end_id) : undefined;
+  if (!e || typeof s.order !== "number" || typeof e.order !== "number") return 1;
+  return Math.max(1, e.order - s.order + 1);
+}
+
+// Beban mengajar REAL guru login pekan berjalan: filter teacher + date>=Senin.
+export function weekLoad(
+  journals: { teacher_id?: string; teacher?: string; date?: string; schedule_id?: string; schedule_end_id?: string | null }[],
+  teacherId: string | undefined,
+  teacherName: string | undefined,
+  schedules: { id: string; order?: number; kind?: string }[],
+  now = new Date(),
+): { jp: number; n: number } {
+  const start = weekStartISO(now);
+  const mine = journals.filter((j) =>
+    (teacherId && j.teacher_id === teacherId) ||
+    (!j.teacher_id && teacherName && j.teacher === teacherName));
+  const pekan = mine.filter((j) => (j.date || "") >= start);
+  return { jp: pekan.reduce((a, j) => a + jpOf(j, schedules), 0), n: pekan.length };
+}
+
+// SATU definisi pemetaan jurnal+attendances → FeedEntry (label + stats).
+// Dipakai getFeedFirestore dan semua listener realtime.
+export function mapJournalEntry(j: Doc, dir: FeedDir, atts: Doc[], src = "firestore"): FeedEntry {
+  const { classes: cls, subjects: sub, users: usr, materials: mat, schedules: sch } = dir;
+  const joinName = (list: Doc[], id?: string, field = "name") => {
+    if (!id) return "";
+    const m = list.find((x) => x.id === id);
+    const v = m ? String((m as any)[field] ?? "") : "";
+    return v.trim() || "";
+  };
+  const clsName = (id?: string) => joinName(cls, id) || "-";
+  const subName = (id?: string) => joinName(sub, id) || "-";
+  const tchName = (id?: string) => joinName(usr, id) || "-";
+  const matTitle = (id?: string) => joinName(mat, id, "title");
+  const l = atts
+    .filter((a) => a.journal_id === j.id)
+    .map((a) => ({ student_id: a.student_id, status: String(a.status).toLowerCase() }));
+  const base = normalizeRemote(j, src);
+  const schedLabel = base.schedule !== "-"
+    ? base.schedule
+    : (j.schedule_id ? rangeLabel(sch, j.schedule_id, j.schedule_end_id) : "") || "-";
+  return {
+    ...base,
+    teacher: base.teacher === "-" && j.teacher_id ? tchName(j.teacher_id) : base.teacher,
+    class: base.class === "-" && j.class_id ? clsName(j.class_id) : base.class,
+    subject: base.subject === "-" && j.subject_id ? subName(j.subject_id) : base.subject,
+    schedule: schedLabel,
+    material: base.material || j.custom_material || matTitle(j.material_id) || "-",
+    stats: resolveStats(l, base.stats),
+    attendances: l.length ? l : base.attendances,
+  };
+}
+
 export async function getFeedFirestore(limitN = 60, opts?: { since?: string }): Promise<FeedEntry[]> {
   const d = new Date();
   const since = opts?.since ?? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
@@ -179,49 +249,14 @@ export async function getFeedFirestore(limitN = 60, opts?: { since?: string }): 
   const js = all
     .sort(byNewest)
     .slice(0, limitN);
-  const joinName = (list: Doc[], id?: string, field = "name") => {
-    if (!id) return "";
-    const m = list.find((x) => x.id === id);
-    const v = m ? String((m as any)[field] ?? "") : "";
-    return v.trim() || "";
-  };
-  const clsName = (id?: string) => joinName(cls, id) || "-";
-  const subName = (id?: string) => joinName(sub, id) || "-";
-  const tchName = (id?: string) => joinName(usr, id) || "-";
-  const matTitle = (id?: string) => joinName(mat, id, "title");
   const ids = js.map((j) => j.id);
   const atts: Doc[] = [];
   for (let i = 0; i < ids.length; i += 30) {
     const chunk = ids.slice(i, i + 30);
     if (chunk.length) atts.push(...(await listDocs("student_attendances", { wheres: [["journal_id", "in", chunk]] })));
   }
-  const byJ = new Map<string, Doc[]>();
-  atts.forEach((a) => {
-    const l = byJ.get(a.journal_id) || [];
-    l.push(a);
-    byJ.set(a.journal_id, l);
-  });
-  return js.map((j) => {
-    const l = byJ.get(j.id) || [];
-    const base = normalizeRemote(j, "firestore");
-    const attList = l.length
-      ? l.map((a) => ({ student_id: a.student_id, status: String(a.status).toLowerCase() }))
-      : base.attendances;
-    // Embed dulu; join direktori (dunia sama) hanya bila embed kosong.
-    const schedLabel = base.schedule !== "-"
-      ? base.schedule
-      : (j.schedule_id ? rangeLabel(sch, j.schedule_id, j.schedule_end_id) : "") || "-";
-    return {
-      ...base,
-      teacher: base.teacher === "-" && j.teacher_id ? tchName(j.teacher_id) : base.teacher,
-      class: base.class === "-" && j.class_id ? clsName(j.class_id) : base.class,
-      subject: base.subject === "-" && j.subject_id ? subName(j.subject_id) : base.subject,
-      schedule: schedLabel,
-      material: base.material || j.custom_material || matTitle(j.material_id) || "-",
-      stats: resolveStats(attList, base.stats),
-      attendances: attList,
-    };
-  });
+  const dirLists: FeedDir = { classes: cls, subjects: sub, users: usr, materials: mat, schedules: sch };
+  return js.map((j) => mapJournalEntry(j, dirLists, atts));
 }
 
 // Fallback lokal bila Firestore tak terjangkau (arsip wizard + mock) — satu dunia lokal.

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Download, ImageIcon, PenLine, Pencil, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { Guard, useAuth } from "@/src/lib/auth";
@@ -10,10 +10,9 @@ import { Modal } from "@/src/components/ui/modal";
 import { Badge, Empty, Skeleton, Spinner } from "@/src/components/ui/misc";
 import { journals } from "@/src/lib/mock";
 import { Lightbox } from "@/src/components/lightbox";
-import { listDocs, useDirectory, getSetting, mockSetting, rewriteAttendances } from "@/src/lib/db";
+import { subscribeFeedJournals, useDirectory, getSetting, mockSetting, rewriteAttendances, type Doc } from "@/src/lib/db";
 import { downloadRekap, type ExportDir } from "@/src/lib/export";
-import { byNewest, resolveStats, type FeedEntry } from "@/src/lib/feed";
-import { slotLabel, rangeLabel } from "@/src/lib/slots";
+import { byNewest, mapJournalEntry, resolveStats, type FeedEntry } from "@/src/lib/feed";
 import { cn, byName } from "@/src/lib/utils";
 import type { SavedJournal } from "../jurnal-baru/page";
 
@@ -26,7 +25,8 @@ const ATT_LABEL: Record<AttStatus, string> = { hadir: "Hadir", sakit: "Sakit", i
 export default function RiwayatPage() {
   const { user } = useAuth();
   const dir = useDirectory();
-  const [rows, setRows] = useState<Row[]>([]);
+  const [mine, setMine] = useState<Row[]>([]);
+  const [feedRaw, setFeedRaw] = useState<{ js: Doc[]; atts: Doc[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [zoom, setZoom] = useState<{ src: string; label: string } | null>(null);
   const [bulan, setBulan] = useState("");
@@ -45,17 +45,6 @@ export default function RiwayatPage() {
     return daftar.filter((s) => `${s.name} ${s.nisn || ""}`.toLowerCase().includes(q));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cari, editing]);
-  // Lingkup tampil default bulan berjalan + "Muat lagi" mundur per bulan.
-  const [since, setSince] = useState(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
-  });
-  const visible = useMemo(() => rows.filter((r) => !r.date || r.date >= since), [rows, since]);
-  function muatLama() {
-    const [y, m] = since.split("-").map(Number);
-    const d = new Date(y, m - 2, 1);
-    setSince(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`);
-  }
 
   const xdir: ExportDir = useMemo(() => ({
     school: { name: sch.school_name, academicYear: sch.academic_year, semester: sch.semester.toLowerCase() === "genap" ? "Genap" : "Ganjil", principalName: (sch as any).principal_name },
@@ -70,83 +59,68 @@ export default function RiwayatPage() {
       .catch(() => {});
   }, []);
 
+  const reloadMine = useCallback(() => {
+    try {
+      const arr = JSON.parse(localStorage.getItem("my-journals") || "[]");
+      setMine(Array.isArray(arr) ? arr : []);
+    } catch {
+      setMine([]);
+    }
+  }, []);
+  useEffect(() => { reloadMine(); }, [reloadMine]);
+
+  // Realtime: jurnal milik guru — tulis di HP langsung tampil di desktop.
   useEffect(() => {
-    if (dir.loading) return;
-    (async () => {
-      let mine: Row[] = [];
-      try {
-        mine = JSON.parse(localStorage.getItem("my-journals") || "[]");
-      } catch {}
-      const seen = new Set(mine.map((m) => m.id));
-      const clsName = (id?: string) => dir.classes.find((c) => c.id === id)?.name || "";
-      const subName = (id?: string) => dir.subjects.find((s) => s.id === id)?.name || "";
-      const schName = (id?: string, endId?: string) => rangeLabel(dir.schedules, id, endId) || slotLabel(dir.schedules, id) || "";
-      const matTitle = (id?: string) => dir.materials.find((m) => m.id === id)?.title || "";
-      const lbl = (...vals: (string | undefined | null)[]) => {
-        for (const v of vals) {
-          const s = String(v ?? "").trim();
-          if (s && s !== "-") return s;
-        }
-        return "-";
-      };
-      try {
-        // Riwayat pribadi: journals where teacher_id = saya
-        const js = user?.id
-          ? await listDocs("journals", { wheres: [["teacher_id", "==", user.id]] })
-          : [];
-        // Attendances feed untuk journal tampil (chunk `in`) — sumber stats yang sama dengan export.
-        const jids = js.filter((j) => !seen.has(j.id)).map((j) => j.id);
-        const attByJ = new Map<string, { student_id: string; status: string }[]>();
-        for (let i = 0; i < jids.length; i += 30) {
-          const chunk = jids.slice(i, i + 30);
-          if (!chunk.length) continue;
-          (await listDocs("student_attendances", { wheres: [["journal_id", "in", chunk]] })).forEach((a) => {
-            const l = attByJ.get(a.journal_id) || [];
-            l.push({ student_id: a.student_id, status: String(a.status || "").toLowerCase() });
-            attByJ.set(a.journal_id, l);
-          });
-        }
-        const remote: Row[] = js
-          .filter((j) => !seen.has(j.id))
-          .map((j) => {
-            return {
-              id: j.id, teacher: user?.name || "Saya",
-              class: lbl(j.class_name, j.class, clsName(j.class_id)),
-              subject: lbl(j.subject_name, j.subject, subName(j.subject_id)),
-              material: j.material_text || j.material || j.custom_material || "",
-              date: j.date || "",
-              notes: j.notes || "", photo: j.photo_url || "", signature: j.signature_url || "",
-              teacher_status: j.teacher_status || "hadir",
-              leave_note: j.leave_note, sick_letter_name: j.sick_letter_url ? String(j.sick_letter_url).split("/").pop() : undefined,
-              sick_letter_note: j.sick_letter_note, stats: { hadir: 0, sakit: 0, izin: 0, alpha: 0 },
-              class_id: j.class_id, subject_id: j.subject_id, teacher_id: j.teacher_id,
-              schedule: lbl(j.schedule_label, j.schedule, schName(j.schedule_id, j.schedule_end_id)) || undefined,
-              schedule_id: j.schedule_id, schedule_end_id: j.schedule_end_id,
-              attendances: attByJ.get(j.id) ?? j.attendances,
-            } as Row;
-          });
-        const fallback = mine.length || remote.length ? [] : journals.map((j) => ({
-          ...j, teacher_status: "hadir" as const, leave_note: undefined,
-          sick_letter_name: undefined, sick_letter_note: undefined,
-        }));
-        // SATU pintu: hitung ulang dari attendances, fallback ke stats tersimpan.
-        setRows([...mine, ...remote, ...fallback]
-          .map((r: any) => ({ ...r, stats: resolveStats(r.attendances, r.stats) }))
-          .sort(byNewest));
-      } catch {
-        const fallback = mine.length ? [] : journals.map((j) => ({
-          ...j, teacher_status: "hadir" as const, leave_note: undefined,
-          sick_letter_name: undefined, sick_letter_note: undefined,
-        }));
-        setRows([...mine, ...fallback]
-          .map((r: any) => ({ ...r, stats: resolveStats(r.attendances, r.stats) }))
-          .sort(byNewest));
-        if (!toastRef.current) { toastRef.current = true; toast.info("Mode demo — memakai data lokal."); }
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [user?.id, user?.name, dir.loading]);
+    if (!user?.id) { setFeedRaw(null); setLoading(false); return; }
+    setLoading(true);
+    let on = true;
+    let unsub: (() => void) | null = null;
+    try {
+      unsub = subscribeFeedJournals([["teacher_id", "==", user.id]],
+        (js, atts) => { if (!on) return; setFeedRaw({ js, atts }); setLoading(false); },
+        () => { if (!on) return; setFeedRaw(null); setLoading(false); if (!toastRef.current) { toastRef.current = true; toast.info("Mode demo — memakai data lokal."); } });
+    } catch {
+      setFeedRaw(null);
+      setLoading(false);
+      if (!toastRef.current) { toastRef.current = true; toast.info("Mode demo — memakai data lokal."); }
+    }
+    return () => { on = false; unsub?.(); };
+  }, [user?.id]);
+
+  const dirLists = useMemo(() => ({
+    classes: dir.classes, subjects: dir.subjects, users: dir.users,
+    materials: dir.materials, schedules: dir.schedules,
+  }), [dir]);
+
+  const remote: Row[] = useMemo(() => {
+    if (!feedRaw) return [];
+    const seen = new Set(mine.map((m) => m.id));
+    return feedRaw.js
+      .filter((j) => !seen.has(j.id))
+      .map((j) => ({ ...mapJournalEntry(j, dirLists, feedRaw.atts), teacher: user?.name || "Saya" } as Row));
+  }, [feedRaw, mine, dirLists, user?.name]);
+
+  const rows: Row[] = useMemo(() => {
+    const fallback = mine.length || remote.length ? [] : journals.map((j) => ({
+      ...j, teacher_status: "hadir" as const, leave_note: undefined,
+      sick_letter_name: undefined, sick_letter_note: undefined,
+    }));
+    return [...mine, ...remote, ...fallback]
+      .map((r: any) => ({ ...r, stats: resolveStats(r.attendances, r.stats) }))
+      .sort(byNewest);
+  }, [mine, remote]);
+
+  // Lingkup tampil default bulan berjalan + "Muat lagi" mundur per bulan.
+  const [since, setSince] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+  });
+  const visible = useMemo(() => rows.filter((r) => !r.date || r.date >= since), [rows, since]);
+  function muatLama() {
+    const [y, m] = since.split("-").map(Number);
+    const d = new Date(y, m - 2, 1);
+    setSince(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`);
+  }
 
   // Export PDF benaran (template formal identik admin), ter-filter guru pemilik.
   async function exportPdf() {
@@ -207,7 +181,6 @@ export default function RiwayatPage() {
       remote = false;
     }
     const patch = { attendances: list, stats };
-    setRows((p) => p.map((r) => (r.id === editing.id ? { ...r, ...patch } : r)));
     try {
       for (const key of ["my-journals", "journals-feed"]) {
         const arr = JSON.parse(localStorage.getItem(key) || "[]");
@@ -215,6 +188,7 @@ export default function RiwayatPage() {
         if (i >= 0) { arr[i] = { ...arr[i], ...patch }; localStorage.setItem(key, JSON.stringify(arr)); }
       }
     } catch {}
+    reloadMine(); // arsip lokal tampil seketika; data server menyusul via listener
     setSavingAtt(false);
     setEditing(null);
     toast.success(remote

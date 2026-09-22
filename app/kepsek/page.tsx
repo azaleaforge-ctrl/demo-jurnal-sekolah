@@ -10,8 +10,8 @@ import { Button } from "@/src/components/ui/button";
 import { Table } from "@/src/components/ui/table";
 import { Badge, Spinner, Skeleton } from "@/src/components/ui/misc";
 import { cn } from "@/src/lib/utils";
-import { getSharedFeed, getFeedFirestore, normalizeRemote, summarizeFeed, type FeedEntry, type Summary } from "@/src/lib/feed";
-import { useDirectory } from "@/src/lib/db";
+import { getSharedFeed, mapJournalEntry, byNewest, normalizeRemote, summarizeFeed, type FeedEntry, type Summary } from "@/src/lib/feed";
+import { subscribeFeedJournals, useDirectory } from "@/src/lib/db";
 import { adminFeed } from "@/src/lib/api";
 import { downloadRekap } from "@/src/lib/export";
 import { todayID } from "@/src/lib/utils";
@@ -27,10 +27,15 @@ export default function KepsekPage() {
   const [feed, setFeed] = useState<FeedEntry[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
 
-  // Satu feed dengan admin & guru — jurnal baru otomatis muncul di sini.
+  // Satu feed dengan admin & guru — realtime, jurnal baru otomatis muncul di sini.
   useEffect(() => {
     if (dir.loading) return;
     let on = true;
+    let unsub: (() => void) | null = null;
+    const dirLists = () => ({
+      classes: dir.classes, subjects: dir.subjects, users: dir.users,
+      materials: dir.materials, schedules: dir.schedules,
+    });
     (async () => {
       const fdir = {
         teachers: dir.users.filter((u) => u.role === "guru").map((u) => ({ id: u.id, name: u.name, subject_ids: u.subject_ids })),
@@ -46,10 +51,20 @@ export default function KepsekPage() {
         return;
       } catch {}
       try {
-        const fs = await getFeedFirestore(100, { since: `${bulan}-01` });
-        if (!on) return;
-        setFeed(fs);
-        setSummary(summarizeFeed(fs, today, bulan, fdir));
+        unsub = subscribeFeedJournals([["date", ">=", `${bulan}-01`]],
+          (js, atts) => {
+            if (!on) return;
+            const mapped = js.map((j) => mapJournalEntry(j, dirLists(), atts)).sort(byNewest);
+            setFeed(mapped);
+            setSummary(summarizeFeed(mapped, today, bulan, fdir));
+          },
+          () => {
+            if (!on) return;
+            const local = getSharedFeed();
+            setFeed(local);
+            setSummary(summarizeFeed(local, today, bulan, fdir));
+            toast.info("Mode demo — memakai data lokal.");
+          });
         return;
       } catch {}
       if (!on) return;
@@ -58,9 +73,9 @@ export default function KepsekPage() {
       setSummary(summarizeFeed(local, today, bulan, fdir));
       toast.info("Mode demo — memakai data lokal.");
     })();
-    return () => { on = false; };
+    return () => { on = false; unsub?.(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dir.loading]);
+  }, [dir.loading, dir]);
 
   async function exp(kind: string) {
     if (busy) return;

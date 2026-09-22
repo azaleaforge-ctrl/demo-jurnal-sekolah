@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   collection, doc, getDoc, getDocs, getCountFromServer, query, where, orderBy, limit,
-  addDoc, setDoc, updateDoc, deleteDoc, writeBatch, type WhereFilterOp,
+  addDoc, setDoc, updateDoc, deleteDoc, writeBatch, onSnapshot, type Unsubscribe, type WhereFilterOp,
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "./firebase";
@@ -32,8 +32,7 @@ type DirData = { users: Doc[]; classes: Doc[]; subjects: Doc[]; students: Doc[];
 type DirSources = Directory["sources"];
 let dirCache: DirData | null = null;
 let dirSources: DirSources | null = null;
-let dirInflight: Promise<DirData> | null = null;
-function bustDir() { dirCache = null; dirSources = null; dirInflight = null; }
+function bustDir() { dirCache = null; dirSources = null; }
 
 // ---------- Repo typed per koleksi §2 ----------
 
@@ -45,6 +44,97 @@ export async function listDocs(name: string, opts?: { wheres?: Wheres; order?: [
   if (opts?.limitN) q = query(q, limit(opts.limitN));
   const s = await getDocs(q);
   return s.docs.map((x) => ({ id: x.id, ...((x.data() || {}) as Record<string, any>) }));
+}
+
+const snapRows = (s: any): Doc[] =>
+  s.docs.map((x: any) => ({ id: x.id, ...((x.data() || {}) as Record<string, any>) }));
+
+// Listener realtime 1 koleksi (ganti fetch-once getDocs).
+// Melempar sinkron bila db mati agar caller langsung ke fallback; error jaringan → onError.
+export function subscribeDocs(
+  name: string,
+  opts: { wheres?: Wheres; order?: [string, "asc" | "desc"]; limitN?: number } | undefined,
+  onData: (rows: Doc[]) => void,
+  onError?: (e: unknown) => void,
+): Unsubscribe {
+  const d = needDb();
+  let q: any = collection(d, name);
+  (opts?.wheres || []).forEach(([f, op, v]) => { q = query(q, where(f, op, v)); });
+  if (opts?.order) q = query(q, orderBy(opts.order[0], opts.order[1]));
+  if (opts?.limitN) q = query(q, limit(opts.limitN));
+  return onSnapshot(q, (s: any) => onData(snapRows(s)), (e: any) => onError?.(e));
+}
+
+// Listener journals + attendances terkait (chunk `in`, 1 field → tanpa index komposit).
+// Perubahan di device A langsung muncul di device B. Kembalikan unsubscribe gabungan.
+export function subscribeFeedJournals(
+  journalWheres: Wheres,
+  onData: (journals: Doc[], attendances: Doc[]) => void,
+  onError?: (e: unknown) => void,
+): Unsubscribe {
+  const d = needDb();
+  let q: any = collection(d, "journals");
+  for (const [f, op, v] of journalWheres) q = query(q, where(f, op, v));
+  let attUnsub: Unsubscribe | null = null;
+  const unsubJ = onSnapshot(q,
+    (snap: any) => {
+      const js = snapRows(snap);
+      const ids = js.map((j) => j.id);
+      attUnsub?.(); attUnsub = null;
+      if (!ids.length) { onData(js, []); return; }
+      const unsubs: Unsubscribe[] = [];
+      const acc = new Map<string, Doc[]>();
+      const emit = () => onData(js, ids.flatMap((id) => acc.get(id) ?? []));
+      for (let i = 0; i < ids.length; i += 30) {
+        const chunk = ids.slice(i, i + 30);
+        unsubs.push(onSnapshot(
+          query(collection(d, "student_attendances"), where("journal_id", "in", chunk)),
+          (s2: any) => {
+            chunk.forEach((id) => acc.delete(id));
+            snapRows(s2).forEach((a) => {
+              const jid = String((a as any).journal_id);
+              const l = acc.get(jid) || [];
+              l.push(a);
+              acc.set(jid, l);
+            });
+            emit();
+          },
+          (e: any) => onError?.(e),
+        ));
+      }
+      attUnsub = () => unsubs.forEach((u) => u());
+    },
+    (e: any) => onError?.(e));
+  return () => { unsubJ(); attUnsub?.(); };
+}
+
+// Listener 6 koleksi direktori inti (gabung jadi 1 snapshot direktori).
+export function subscribeDirectory(
+  onData: (dir: DirData, sources: DirSources) => void,
+  onError?: (e: unknown) => void,
+): Unsubscribe {
+  const d = needDb();
+  const cols = ["users", "classes", "subjects", "students", "schedules", "materials"] as const;
+  const acc: Partial<Record<(typeof cols)[number], Doc[]>> = {};
+  const mapDoc = (x: any): Doc => ({ id: x.id, ...((x.data() || {}) as Record<string, any>) });
+  const emit = () => {
+    const pick = (rows: Doc[] | undefined, fb: Doc[]) => (rows && rows.length ? rows : fb);
+    const src = (rows: Doc[] | undefined): "firestore" | "mock" => (rows && rows.length ? "firestore" : "mock");
+    dirCache = {
+      users: pick(acc.users, mockUsers as Doc[]), classes: pick(acc.classes, mockClasses as Doc[]),
+      subjects: pick(acc.subjects, mockSubjects as Doc[]), students: pick(acc.students, mockStudents as Doc[]),
+      schedules: pick(acc.schedules, mockSchedules as Doc[]), materials: pick(acc.materials, mockMaterials as Doc[]),
+    };
+    dirSources = {
+      users: src(acc.users), classes: src(acc.classes), subjects: src(acc.subjects),
+      students: src(acc.students), schedules: src(acc.schedules), materials: src(acc.materials),
+    };
+    onData(dirCache, dirSources);
+  };
+  const unsubs = cols.map((c) => onSnapshot(collection(d, c),
+    (s: any) => { acc[c] = s.docs.map(mapDoc); if (cols.every((k) => acc[k])) emit(); },
+    (e: any) => onError?.(e)));
+  return () => unsubs.forEach((u) => u());
 }
 
 export async function countDocs(name: string): Promise<number> {
@@ -197,24 +287,35 @@ export function useCollection<T extends Doc>(name: string, opts?: { wheres?: Whe
   const [loading, setLoading] = useState(true);
   const [remote, setRemote] = useState(false);
   const toasted = useRef(false);
+  const optsRef = useRef(opts);
+  optsRef.current = opts;
+  const unsubRef = useRef<Unsubscribe | null>(null);
 
-  const refresh = useCallback(async () => {
+  // Realtime: tulis di device A langsung muncul di device B (unsubscribe rapi).
+  const attach = useCallback(() => {
+    unsubRef.current?.();
+    unsubRef.current = null;
     setLoading(true);
-    try {
-      const data = (await listDocs(name, opts)) as T[];
-      setRows(data);
-      setRemote(true);
-    } catch {
-      if (opts?.fallback) setRows(opts.fallback);
-      if (!toasted.current) { toasted.current = true; toast.info("Mode demo — memakai data lokal."); }
+    const fail = () => {
+      if (optsRef.current?.fallback) setRows(optsRef.current.fallback as T[]);
       setRemote(false);
-    } finally {
       setLoading(false);
+      if (!toasted.current) { toasted.current = true; toast.info("Mode demo — memakai data lokal."); }
+    };
+    try {
+      unsubRef.current = subscribeDocs(name, optsRef.current, (data) => {
+        setRows(data as T[]);
+        setRemote(true);
+        setLoading(false);
+      }, fail);
+    } catch {
+      fail();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  const refresh = useCallback(async () => { attach(); }, [attach]);
+
+  useEffect(() => { attach(); return () => { unsubRef.current?.(); unsubRef.current = null; }; }, [attach]);
 
   const persist = useMemo(() => ({
     create: async (item: any): Promise<string> => {
@@ -248,56 +349,34 @@ const mockSources = {
 } as Directory["sources"];
 
 // Satu hook direktori untuk dropdown + agregasi (fallback mock per koleksi).
-// Cache sesi: 6 koleksi dibaca sekali, dipakai ulang antar halaman tanpa refetch.
-async function loadDirectory(): Promise<DirData> {
-  if (dirCache) return dirCache;
-  if (!dirInflight) {
-    dirInflight = (async () => {
-      const [users, classes, subjects, students, schedules, materials] = await Promise.all([
-        listDocs("users"), listDocs("classes"), listDocs("subjects"),
-        listDocs("students"), listDocs("schedules"), listDocs("materials"),
-      ]);
-      const pick = (rows: Doc[], fb: Doc[]) => (rows.length ? rows : fb);
-      const src = (rows: Doc[]): "firestore" | "mock" => (rows.length ? "firestore" : "mock");
-      dirSources = {
-        users: src(users), classes: src(classes), subjects: src(subjects),
-        students: src(students), schedules: src(schedules), materials: src(materials),
-      };
-      dirCache = {
-        users: pick(users, mockUsers as Doc[]), classes: pick(classes, mockClasses as Doc[]),
-        subjects: pick(subjects, mockSubjects as Doc[]), students: pick(students, mockStudents as Doc[]),
-        schedules: pick(schedules, mockSchedules as Doc[]), materials: pick(materials, mockMaterials as Doc[]),
-      };
-      return dirCache;
-    })().catch((e) => { dirInflight = null; throw e; });
-  }
-  return dirInflight;
-}
+// Realtime via subscribeDirectory; cache sesi tetap ditulis agar getDocs lain hemat.
 
 export function useDirectory(): Directory {
   const [dir, setDir] = useState({ users: mockUsers as Doc[], classes: mockClasses as Doc[], subjects: mockSubjects as Doc[], students: mockStudents as Doc[], schedules: mockSchedules as Doc[], materials: mockMaterials as Doc[] });
   const [loading, setLoading] = useState(!dirCache);
   const [remote, setRemote] = useState(!!dirCache);
   const [sources, setSources] = useState<DirSources>(dirSources ?? mockSources);
+  const toasted = useRef(false);
   useEffect(() => {
     let on = true;
-    if (dirCache) { setDir(dirCache); setRemote(true); setSources(dirSources ?? mockSources); setLoading(false); return; }
-    (async () => {
-      try {
-        const d = await loadDirectory();
+    if (dirCache) { setDir(dirCache); setRemote(true); setSources(dirSources ?? mockSources); setLoading(false); }
+    let unsub: (() => void) | null = null;
+    const fail = () => {
+      if (!on) return;
+      setSources(mockSources);
+      setLoading(false);
+      if (!toasted.current) { toasted.current = true; toast.info("Mode demo — memakai data lokal."); }
+    };
+    try {
+      // Realtime: perubahan master di device A langsung tampil di device B.
+      unsub = subscribeDirectory((d, s) => {
         if (!on) return;
-        setDir(d);
-        setRemote(true);
-        setSources(dirSources ?? mockSources);
-      } catch {
-        if (!on) return;
-        setSources(mockSources);
-        toast.info("Mode demo — memakai data lokal.");
-      } finally {
-        if (on) setLoading(false);
-      }
-    })();
-    return () => { on = false; };
+        setDir(d); setRemote(true); setSources(s); setLoading(false);
+      }, fail);
+    } catch {
+      fail();
+    }
+    return () => { on = false; unsub?.(); };
   }, []);
   return { ...dir, loading, remote, sources };
 }

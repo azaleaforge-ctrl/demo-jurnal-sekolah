@@ -11,8 +11,8 @@ import { Table } from "@/src/components/ui/table";
 import { Badge, Skeleton } from "@/src/components/ui/misc";
 import { Lightbox } from "@/src/components/lightbox";
 import { adminStats, adminFeed } from "@/src/lib/api";
-import { getSharedFeed, getFeedFirestore, normalizeRemote, summarizeFeed, summaryFromRemote, type Summary, type FeedEntry } from "@/src/lib/feed";
-import { useDirectory } from "@/src/lib/db";
+import { getSharedFeed, mapJournalEntry, byNewest, normalizeRemote, summarizeFeed, summaryFromRemote, type Summary, type FeedEntry } from "@/src/lib/feed";
+import { subscribeFeedJournals, useDirectory } from "@/src/lib/db";
 import { todayID } from "@/src/lib/utils";
 
 const COLORS = ["#2E5BFF", "#F5B83D", "#38BDF8", "#F43F5E"];
@@ -40,6 +40,11 @@ export default function AdminHome() {
   useEffect(() => {
     if (dir.loading) return;
     let on = true;
+    let unsub: (() => void) | null = null;
+    const dirLists = () => ({
+      classes: dir.classes, subjects: dir.subjects, users: dir.users,
+      materials: dir.materials, schedules: dir.schedules,
+    });
     (async () => {
       // 1) Backend Laravel bila hidup
       try {
@@ -55,12 +60,23 @@ export default function AdminHome() {
         setSummary(summaryFromRemote(s, remote, bulan, fdir));
         return;
       } catch {}
-      // 2) Firestore langsung (§5) — agregasi client aturan §4.6, lingkup bulan + limit
+      // 2) Firestore realtime (§5) — agregasi client aturan §4.6, lingkup bulan.
+      // Tulis di device lain langsung muncul di sini tanpa refresh.
       try {
-        const fs = await getFeedFirestore(100, { since: `${bulan}-01` });
-        if (!on) return;
-        setFeed(fs);
-        setSummary(summarizeFeed(fs, tanggal, bulan, fdir));
+        unsub = subscribeFeedJournals([["date", ">=", `${bulan}-01`]],
+          (js, atts) => {
+            if (!on) return;
+            const mapped = js.map((j) => mapJournalEntry(j, dirLists(), atts)).sort(byNewest);
+            setFeed(mapped);
+            setSummary(summarizeFeed(mapped, tanggal, bulan, fdir));
+          },
+          () => {
+            if (!on) return;
+            const local = getSharedFeed();
+            setFeed(local);
+            setSummary(summarizeFeed(local, tanggal, bulan, fdir));
+            toast.info("Mode demo — memakai data lokal.");
+          });
         return;
       } catch {}
       // 3) Fallback mock bila Firestore tak terjangkau
@@ -70,9 +86,9 @@ export default function AdminHome() {
       setSummary(summarizeFeed(local, tanggal, bulan, fdir));
       toast.info("Mode demo — memakai data lokal.");
     })();
-    return () => { on = false; };
+    return () => { on = false; unsub?.(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bulan, tanggal, dir.loading]);
+  }, [bulan, tanggal, dir.loading, dir]);
 
   const visible = useMemo(
     () => feed.filter((f) => f.date.startsWith(bulan) && (!fClass || f.class === fClass || f.class_id === fClass) && (!fTeacher || f.teacher === fTeacher)).slice(0, 6),
