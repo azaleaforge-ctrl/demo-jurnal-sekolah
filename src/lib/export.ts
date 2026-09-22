@@ -5,7 +5,9 @@ import { API_BASE, endpoints } from "./api";
 import { school as fbSchool, students as fbStudents, classes as fbClasses, teachers as fbTeachers } from "./mock";
 import type { FeedEntry } from "./feed";
 
-// Rekap nyata dari feed lokal; backend GET /export/* dicoba dulu, gagal → lokal.
+// Format formal acuan docs/referensi-laporan.jpg (§4.5): kop 3 baris + garis,
+// judul, meta 2 kolom, tabel 9 kolom + foto/TTD ter-embed, blok TTD 2 kolom.
+// Backend GET /export/* dicoba dulu, gagal → generate lokal.
 
 export type RekapTipe = "guru" | "siswa";
 export type ExportDir = {
@@ -27,15 +29,44 @@ export type RekapOpts = {
 };
 
 const BULAN = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+const HARI = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
+
 export function fmtID(iso: string) {
   const [y, m, d] = (iso || "").split("-").map(Number);
   if (!y || !m || !d) return iso || "-";
   return `${d} ${BULAN[m - 1]} ${y}`;
 }
+
+// "Selasa, 22 September 2026" seperti kolom Hari & Tanggal referensi.
+export function hariTanggal(iso: string) {
+  const [y, m, d] = (iso || "").split("-").map(Number);
+  if (!y || !m || !d || m < 1 || m > 12) return iso || "-";
+  return `${HARI[new Date(y, m - 1, d).getDay()]}, ${d} ${BULAN[m - 1]} ${y}`;
+}
+
+// "07.00 s/d 08.30" dari label slot ("07.00 - 07.45" / "Jam 1 (07.00 – 07.45)").
+export function jamRange(schedule?: string) {
+  const m = (schedule || "").match(/(\d{2}\.\d{2})/g);
+  if (m && m.length >= 2) return `${m[0]} s/d ${m[m.length - 1]}`;
+  return schedule || "-";
+}
+
+// Periode gaya referensi: "Bulan September Tahun 2026".
+export function metaPeriode(dari: string, sampai: string) {
+  if (dari && sampai) {
+    const [y1, m1] = dari.split("-").map(Number);
+    const [y2, m2] = sampai.split("-").map(Number);
+    if (y1 === y2 && m1 === m2 && m1 >= 1 && m1 <= 12) return `Bulan ${BULAN[m1 - 1]} Tahun ${y1}`;
+    return `${fmtID(dari)} – ${fmtID(sampai)}`;
+  }
+  return "Semua Periode";
+}
+
 export function periodeLabel(dari: string, sampai: string) {
   if (dari && sampai) return dari === sampai ? fmtID(dari) : `${fmtID(dari)} – ${fmtID(sampai)}`;
   return "Semua periode";
 }
+
 export function rekapFilename(tipe: RekapTipe, format: "pdf" | "xlsx", dari: string, sampai: string) {
   const p = dari && sampai ? (dari === sampai ? dari : `${dari}_sd_${sampai}`) : "semua-periode";
   return `Rekap-${tipe === "guru" ? "Guru" : "Siswa"}-${p}.${format}`;
@@ -51,40 +82,112 @@ export function filterRekap(feed: FeedEntry[], dari: string, sampai: string, cla
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
-const statusID = (s: string) => (s === "izin" ? "Izin" : s === "sakit" ? "Sakit" : "Hadir");
-export function keterangan(j: FeedEntry) {
-  if (j.teacher_status === "izin") return j.leave_note || "-";
-  if (j.teacher_status === "sakit") return j.sick_letter_note || j.sick_letter_name || "-";
-  return "-";
-}
 export function studentOf(id: string, students: ExportDir["students"] = defaultDir.students) {
   return students.find((s) => s.id === id);
 }
 
-// ---------- Excel (exceljs, berstyled) ----------
+function guruPengampu(o: RekapOpts, rows: FeedEntry[]) {
+  const dir = o.dir ?? defaultDir;
+  if (o.teacherId) return dir.teachers.find((t) => t.id === o.teacherId)?.name || "-";
+  const names = [...new Set(rows.map((r) => r.teacher))];
+  return names.length === 1 ? names[0] : "Semua Guru";
+}
+
+function kelasMeta(o: RekapOpts, rows: FeedEntry[]) {
+  const dir = o.dir ?? defaultDir;
+  if (o.classId) return dir.classes.find((c) => c.id === o.classId)?.name || "-";
+  const names = [...new Set(rows.map((r) => r.class))];
+  return names.length === 1 ? names[0] : "Semua Kelas";
+}
+
+const fit = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
+
+// ---------- Media: preload ke dataURL + dimensi (gagal → null → strip) ----------
+
+type Media = { dataUrl: string; ext: "png" | "jpeg"; w: number; h: number } | null;
+
+async function fetchMedia(src?: string): Promise<Media> {
+  try {
+    if (!src) return null;
+    let dataUrl = src;
+    if (!src.startsWith("data:")) {
+      const res = await fetch(src);
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      if (!blob.type.startsWith("image/")) return null;
+      dataUrl = await new Promise<string>((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(String(fr.result));
+        fr.onerror = reject;
+        fr.readAsDataURL(blob);
+      });
+    }
+    const m = /^data:(image\/(png|jpe?g));base64,(.+)$/.exec(dataUrl);
+    if (!m) return null;
+    const dims = await new Promise<{ w: number; h: number }>((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve({ w: img.naturalWidth || 4, h: img.naturalHeight || 3 });
+      img.onerror = () => resolve({ w: 4, h: 3 });
+      img.src = dataUrl;
+    });
+    return { dataUrl, ext: m[1] === "image/png" ? "png" : "jpeg", ...dims };
+  } catch {
+    return null;
+  }
+}
+
+// ---------- Excel (exceljs): struktur sama dengan referensi ----------
 
 const BLUE = "FF2E5BFF";
 const LINE = "FFD0D5DD";
 const thin = { style: "thin" as const, color: { argb: LINE } };
 const allBorder = { top: thin, left: thin, bottom: thin, right: thin };
 
-function kop(ws: ExcelJS.Worksheet, title: string, periode: string, nCols: number, sch: ExportDir["school"]) {
+// Kop 3 baris merge-centered + garis (border bawah tebal baris 3).
+function kop3(ws: ExcelJS.Worksheet, schName: string, nCols: number) {
   const last = String.fromCharCode(64 + nCols);
   ws.mergeCells(`A1:${last}1`);
   ws.mergeCells(`A2:${last}2`);
   ws.mergeCells(`A3:${last}3`);
   const r1 = ws.getRow(1);
-  r1.getCell(1).value = sch.name;
-  r1.font = { bold: true, size: 14 };
+  r1.getCell(1).value = "PEMERINTAH DAERAH";
+  r1.font = { bold: true, size: 12 };
   r1.alignment = { horizontal: "center" };
   const r2 = ws.getRow(2);
-  r2.getCell(1).value = `Tahun Ajaran ${sch.academicYear} · Semester ${sch.semester}`;
-  r2.font = { italic: true, size: 11 };
+  r2.getCell(1).value = schName.toUpperCase();
+  r2.font = { bold: true, size: 15 };
   r2.alignment = { horizontal: "center" };
   const r3 = ws.getRow(3);
-  r3.getCell(1).value = `${title} · Periode ${periode}`;
-  r3.font = { bold: true, size: 12 };
+  r3.getCell(1).value = "—";
+  r3.font = { size: 10 };
   r3.alignment = { horizontal: "center" };
+  for (let c = 1; c <= nCols; c++) {
+    r3.getCell(c).border = { bottom: { style: "medium" as const, color: { argb: "FF101828" } } };
+  }
+}
+
+function judulRow(ws: ExcelJS.Worksheet, n: number, title: string, nCols: number) {
+  const last = String.fromCharCode(64 + nCols);
+  ws.mergeCells(`A${n}:${last}${n}`);
+  const r = ws.getRow(n);
+  r.getCell(1).value = title;
+  r.font = { bold: true, size: 12 };
+  r.alignment = { horizontal: "center" };
+}
+
+// Meta 2 kolom: kiri A–D, kanan F–I.
+function metaRow(ws: ExcelJS.Worksheet, n: number, lLabel: string, lVal: string, rLabel: string, rVal: string) {
+  const r = ws.getRow(n);
+  r.getCell(1).value = lLabel;
+  r.getCell(1).font = { bold: true, size: 10 };
+  ws.mergeCells(`B${n}:D${n}`);
+  r.getCell(2).value = `: ${lVal}`;
+  r.getCell(2).font = { size: 10 };
+  r.getCell(6).value = rLabel;
+  r.getCell(6).font = { bold: true, size: 10 };
+  ws.mergeCells(`G${n}:I${n}`);
+  r.getCell(7).value = `: ${rVal}`;
+  r.getCell(7).font = { size: 10 };
 }
 
 function headerRow(ws: ExcelJS.Worksheet, n: number, heads: string[]) {
@@ -97,10 +200,10 @@ function headerRow(ws: ExcelJS.Worksheet, n: number, heads: string[]) {
     c.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
     c.border = allBorder;
   });
-  row.height = 22;
+  row.height = 24;
 }
 
-function bodyRow(ws: ExcelJS.Worksheet, n: number, vals: (string | number)[], bold = false) {
+function bodyRow(ws: ExcelJS.Worksheet, n: number, vals: (string | number)[], bold = false, height?: number) {
   const row = ws.getRow(n);
   vals.forEach((v, i) => {
     const c = row.getCell(i + 1);
@@ -109,103 +212,169 @@ function bodyRow(ws: ExcelJS.Worksheet, n: number, vals: (string | number)[], bo
     c.border = allBorder;
     c.alignment = { vertical: "middle", wrapText: true };
   });
+  if (height) row.height = height;
+}
+
+// Blok TTD 2 kolom: kiri Guru Mapel (+nama), kanan tanggal akhir + Kepala Sekolah.
+function ttdExcel(ws: ExcelJS.Worksheet, n: number, guruName: string, dateStr: string) {
+  ws.mergeCells(`A${n}:D${n}`);
+  ws.mergeCells(`F${n}:I${n}`);
+  const r0 = ws.getRow(n);
+  r0.getCell(1).value = "Mengetahui,";
+  r0.getCell(6).value = dateStr;
+  ws.mergeCells(`A${n + 1}:D${n + 1}`);
+  ws.mergeCells(`F${n + 1}:I${n + 1}`);
+  const r1 = ws.getRow(n + 1);
+  r1.getCell(1).value = "Guru Mata Pelajaran";
+  r1.getCell(6).value = "Kepala Sekolah";
+  const r4 = ws.getRow(n + 4);
+  ws.mergeCells(`A${n + 4}:D${n + 4}`);
+  ws.mergeCells(`F${n + 4}:I${n + 4}`);
+  r4.getCell(1).value = guruName;
+  r4.getCell(1).font = { bold: true };
+  r4.getCell(6).value = "Kepala Sekolah";
+  r4.getCell(6).font = { bold: true };
+  const r5 = ws.getRow(n + 5);
+  ws.mergeCells(`A${n + 5}:D${n + 5}`);
+  ws.mergeCells(`F${n + 5}:I${n + 5}`);
+  r5.getCell(1).value = "______________________";
+  r5.getCell(6).value = "______________________";
+}
+
+function printSetup(ws: ExcelJS.Worksheet) {
+  ws.pageSetup = { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 };
+}
+
+// Embed gambar contain ke sel (kolom lebar ~pxCol px, tinggi baris pxH px).
+function embedCell(wb: ExcelJS.Workbook, ws: ExcelJS.Worksheet, m: Media, col: number, row: number, pxCol: number, pxH: number) {
+  if (!m) return;
+  const id = wb.addImage({ base64: m.dataUrl.split(",")[1], extension: m.ext });
+  const scale = Math.min(pxCol / m.w, pxH / m.h);
+  const dw = Math.max(8, Math.floor(m.w * scale));
+  const dh = Math.max(8, Math.floor(m.h * scale));
+  const colW = pxCol || 1;
+  ws.addImage(id, {
+    tl: { col: col + (colW - dw) / 2 / colW, row: row - 1 + 0.06 },
+    ext: { width: dw, height: dh },
+  });
 }
 
 export async function buildRekapExcel(o: RekapOpts & { rows: FeedEntry[] }): Promise<Uint8Array> {
   const wb = new ExcelJS.Workbook();
-  const periode = periodeLabel(o.dari, o.sampai);
   const dir = o.dir ?? defaultDir;
   const sch = dir.school;
+  const guruName = o.tipe === "guru" ? guruPengampu(o, o.rows) : o.rows[0]?.teacher || "-";
+  const dateStr = o.sampai ? fmtID(o.sampai) : o.dari ? fmtID(o.dari) : "-";
+
   if (o.tipe === "guru") {
-    const ws = wb.addWorksheet("Rekap Guru");
-    ws.columns = [{ width: 4 }, { width: 14 }, { width: 22 }, { width: 20 }, { width: 14 }, { width: 20 }, { width: 30 }, { width: 10 }, { width: 30 }];
-    kop(ws, "Rekap Kehadiran Guru", periode, 9, sch);
-    headerRow(ws, 4, ["No", "Tanggal", "Guru", "Mapel", "Kelas", "Jam (slot guru)", "Materi", "Status", "Keterangan"]);
+    const ws = wb.addWorksheet("Laporan Jurnal");
+    ws.columns = [{ width: 5 }, { width: 22 }, { width: 18 }, { width: 14 }, { width: 22 }, { width: 28 }, { width: 32 }, { width: 16 }, { width: 16 }];
+    kop3(ws, sch.name, 9);
+    judulRow(ws, 4, "LAPORAN JURNAL KEGIATAN BELAJAR MENGAJAR", 9);
+    metaRow(ws, 5, "Tahun Pelajaran", `${sch.academicYear}`, "Guru Pengampu", guruName);
+    metaRow(ws, 6, "Semester", sch.semester, "Periode", metaPeriode(o.dari, o.sampai));
+    headerRow(ws, 7, ["No", "Hari & Tanggal", "Jam Pelaksanaan", "Kelas", "Nama Guru", "Materi Pembelajaran", "Catatan", "Foto Dokumentasi", "Tanda Tangan Guru"]);
+    const media = await Promise.all(o.rows.map(async (j) => ({ foto: await fetchMedia(j.photo), ttd: await fetchMedia(j.signature) })));
     o.rows.forEach((j, i) => {
-      bodyRow(ws, 5 + i, [i + 1, fmtID(j.date), j.teacher, j.subject, j.class, j.schedule || "-", j.material || "-", statusID(j.teacher_status), keterangan(j)]);
+      const r = 8 + i;
+      bodyRow(ws, r, [
+        i + 1, hariTanggal(j.date), jamRange(j.schedule), j.class, j.teacher,
+        j.material || "-", j.notes || "-",
+        media[i].foto ? "" : j.photo ? "Ada" : "-", media[i].ttd ? "" : j.signature ? "Ada" : "-",
+      ], false, 64);
+      embedCell(wb, ws, media[i].foto, 7, r, 108, 56);
+      embedCell(wb, ws, media[i].ttd, 8, r, 108, 56);
     });
-    const t = { hadir: 0, izin: 0, sakit: 0 };
-    o.rows.forEach((j) => { t[j.teacher_status]++; });
-    const tr = 5 + o.rows.length;
-    ws.mergeCells(`A${tr}:G${tr}`);
-    bodyRow(ws, tr, [`TOTAL (${o.rows.length} jurnal)`, "", "", "", "", "", "", `Hadir: ${t.hadir}`, `Izin: ${t.izin} · Sakit: ${t.sakit}`], true);
-    ws.views = [{ state: "frozen", ySplit: 4 }];
-    ws.autoFilter = { from: "A4", to: "I4" };
+    ttdExcel(ws, 9 + o.rows.length, guruName, dateStr);
+    ws.views = [{ state: "frozen", ySplit: 7 }];
+    ws.autoFilter = { from: "A7", to: "I7" };
+    printSetup(ws);
   } else {
     const ws = wb.addWorksheet("Rekap Siswa");
-    ws.columns = [{ width: 4 }, { width: 14 }, { width: 14 }, { width: 12 }, { width: 24 }, { width: 6 }, { width: 6 }, { width: 6 }, { width: 6 }];
-    kop(ws, "Rekap Kehadiran Siswa", periode, 9, sch);
-    let r = 4;
-    // (a) detail per siswa per jurnal — hanya jurnal yang menyimpan rincian absensi
-    headerRow(ws, r, ["No", "Tanggal", "Kelas", "NISN", "Nama", "H", "S", "I", "A"]);
+    ws.columns = [{ width: 5 }, { width: 22 }, { width: 14 }, { width: 14 }, { width: 26 }, { width: 7 }, { width: 7 }, { width: 7 }, { width: 7 }];
+    kop3(ws, sch.name, 9);
+    judulRow(ws, 4, "LAPORAN REKAPITULASI KEHADIRAN SISWA", 9);
+    metaRow(ws, 5, "Tahun Pelajaran", `${sch.academicYear}`, "Kelas", kelasMeta(o, o.rows));
+    metaRow(ws, 6, "Semester", sch.semester, "Periode", metaPeriode(o.dari, o.sampai));
+    let r = 7;
+    headerRow(ws, r, ["No", "Hari & Tanggal", "Kelas", "NISN", "Nama", "H", "S", "I", "A"]);
     ws.views = [{ state: "frozen", ySplit: r }];
     ws.autoFilter = { from: `A${r}`, to: `I${r}` };
     r++;
     let no = 1;
-    const agg = new Map<string, { nisn: string; name: string; class: string; h: number; s: number; i: number; a: number }>();
-    o.rows.forEach((j) => {
+    const withAtt = o.rows.filter((j) => (j.attendances || []).length > 0);
+    withAtt.forEach((j) => {
       (j.attendances || []).forEach((at) => {
         const st = studentOf(at.student_id, dir.students);
-        const k = st?.id || at.student_id;
-        if (!agg.has(k)) agg.set(k, { nisn: st?.nisn || "-", name: st?.name || at.student_id, class: j.class, h: 0, s: 0, i: 0, a: 0 });
-        const g = agg.get(k)!;
-        if (at.status === "hadir") g.h++; else if (at.status === "sakit") g.s++; else if (at.status === "izin") g.i++; else g.a++;
-        bodyRow(ws, r++, [no++, fmtID(j.date), j.class, g.nisn, g.name, at.status === "hadir" ? "✓" : "", at.status === "sakit" ? "✓" : "", at.status === "izin" ? "✓" : "", at.status === "alpha" ? "✓" : ""]);
+        const nm = st?.name || at.student_id;
+        bodyRow(ws, r++, [no++, hariTanggal(j.date), j.class, st?.nisn || "-", nm,
+          at.status === "hadir" ? "✓" : "", at.status === "sakit" ? "✓" : "",
+          at.status === "izin" ? "✓" : "", at.status === "alpha" ? "✓" : ""], false, 20);
       });
     });
-    // (b) rekap agregat per siswa
-    r++;
-    ws.mergeCells(`A${r}:I${r}`);
-    bodyRow(ws, r++, ["REKAP PER SISWA", "", "", "", "", "", "", "", ""], true);
-    headerRow(ws, r, ["No", "NISN", "Nama", "Kelas", "H", "S", "I", "A", "%Hadir"]);
-    r++;
-    let n = 1;
-    [...agg.values()].sort((a, b) => a.name.localeCompare(b.name)).forEach((g) => {
-      const tot = g.h + g.s + g.i + g.a;
-      bodyRow(ws, r++, [n++, g.nisn, g.name, g.class, g.h, g.s, g.i, g.a, tot ? `${Math.round((g.h / tot) * 100)}%` : "-"]);
-    });
-    // (c) rekap per jurnal — mencakup semua jurnal termasuk tanpa rincian
-    r++;
-    ws.mergeCells(`A${r}:I${r}`);
-    bodyRow(ws, r++, ["REKAP PER JURNAL (AGREGAT)", "", "", "", "", "", "", "", ""], true);
-    headerRow(ws, r, ["No", "Tanggal", "Kelas", "Guru", "H", "S", "I", "A", "Total"]);
-    r++;
-    const tot = { h: 0, s: 0, i: 0, a: 0 };
-    o.rows.forEach((j, i) => {
-      const t = j.stats.hadir + j.stats.sakit + j.stats.izin + j.stats.alpha;
-      tot.h += j.stats.hadir; tot.s += j.stats.sakit; tot.i += j.stats.izin; tot.a += j.stats.alpha;
-      bodyRow(ws, r++, [i + 1, fmtID(j.date), j.class, j.teacher, j.stats.hadir, j.stats.sakit, j.stats.izin, j.stats.alpha, t]);
-    });
-    bodyRow(ws, r, ["TOTAL", "", "", "", tot.h, tot.s, tot.i, tot.a, tot.h + tot.s + tot.i + tot.a], true);
+    const rest = o.rows.filter((j) => !(j.attendances || []).length);
+    if (rest.length) {
+      r++;
+      ws.mergeCells(`A${r}:I${r}`);
+      bodyRow(ws, r++, ["REKAP PER JURNAL (AGREGAT)", "", "", "", "", "", "", "", ""], true);
+      headerRow(ws, r, ["No", "Hari & Tanggal", "Kelas", "Guru", "H", "S", "I", "A", "Total"]);
+      r++;
+      rest.forEach((j, i) => {
+        const t = j.stats.hadir + j.stats.sakit + j.stats.izin + j.stats.alpha;
+        bodyRow(ws, r++, [i + 1, hariTanggal(j.date), j.class, j.teacher, j.stats.hadir, j.stats.sakit, j.stats.izin, j.stats.alpha, t], false, 20);
+      });
+    }
+    ttdExcel(ws, r + 1, guruName, dateStr);
+    printSetup(ws);
   }
   const buf = await wb.xlsx.writeBuffer();
   return buf as unknown as Uint8Array;
 }
 
-// ---------- PDF (jsPDF + autotable) ----------
+// ---------- PDF (jsPDF + autotable): susunan persis referensi ----------
 
-function kopPdf(doc: jsPDF, title: string, periode: string, sch: ExportDir["school"]) {
+function kopPdf(doc: jsPDF, schName: string) {
   const w = doc.internal.pageSize.getWidth();
-  doc.setFont("helvetica", "bold"); doc.setFontSize(14);
-  doc.text(sch.name, w / 2, 14, { align: "center" });
-  doc.setFont("helvetica", "italic"); doc.setFontSize(10);
-  doc.text(`Tahun Ajaran ${sch.academicYear} · Semester ${sch.semester}`, w / 2, 20, { align: "center" });
   doc.setFont("helvetica", "bold"); doc.setFontSize(12);
-  doc.text(title, w / 2, 27, { align: "center" });
+  doc.text("PEMERINTAH DAERAH", w / 2, 12, { align: "center" });
+  doc.setFontSize(15);
+  doc.text(schName.toUpperCase(), w / 2, 19, { align: "center" });
   doc.setFont("helvetica", "normal"); doc.setFontSize(10);
-  doc.text(`Periode: ${periode}`, w / 2, 33, { align: "center" });
+  doc.text("—", w / 2, 24, { align: "center" });
+  doc.setLineWidth(0.8);
+  doc.line(10, 27, w - 10, 27);
+  doc.setLineWidth(0.3);
+  doc.line(10, 28.5, w - 10, 28.5);
+  return 33;
 }
 
-function ttdBlock(doc: jsPDF, y: number) {
-  const w = doc.internal.pageSize.getWidth();
-  const yy = y + 14;
+function metaPdf(doc: jsPDF, y: number, l1: [string, string], l2: [string, string], r1: [string, string], r2: [string, string]) {
   doc.setFontSize(10);
-  doc.text("Mengetahui,", 20, yy);
-  doc.text("Kepala Sekolah", 20, yy + 6);
-  doc.text("Admin", w - 20, yy, { align: "right" });
-  doc.text("( ........................................... )", 20, yy + 30);
-  doc.text("NIP. ........................................", 20, yy + 36);
-  doc.text("( ........................................... )", w - 20, yy + 30, { align: "right" });
+  doc.setFont("helvetica", "bold");
+  doc.text(l1[0], 14, y); doc.text(r1[0], 160, y);
+  doc.setFont("helvetica", "normal");
+  doc.text(`: ${fit(l1[1], 34)}`, 58, y); doc.text(`: ${fit(r1[1], 30)}`, 206, y);
+  doc.setFont("helvetica", "bold");
+  doc.text(l2[0], 14, y + 6); doc.text(r2[0], 160, y + 6);
+  doc.setFont("helvetica", "normal");
+  doc.text(`: ${fit(l2[1], 34)}`, 58, y + 6); doc.text(`: ${fit(r2[1], 30)}`, 206, y + 6);
+  return y + 11;
+}
+
+function ttdPdf(doc: jsPDF, y: number, guruName: string, dateStr: string) {
+  const w = doc.internal.pageSize.getWidth();
+  if (y > 150) { doc.addPage(); y = 20; }
+  doc.setFontSize(10);
+  doc.text("Mengetahui,", 30, y);
+  doc.text("Guru Mata Pelajaran", 30, y + 6);
+  doc.text(dateStr, w - 30, y, { align: "right" });
+  doc.text("Kepala Sekolah", w - 30, y + 6, { align: "right" });
+  doc.setFont("helvetica", "bold");
+  doc.text(fit(guruName, 30), 30, y + 30);
+  doc.text("Kepala Sekolah", w - 30, y + 30, { align: "right" });
+  doc.setFont("helvetica", "normal");
+  doc.text("______________________", 30, y + 36);
+  doc.text("______________________", w - 30, y + 36, { align: "right" });
 }
 
 function footers(doc: jsPDF) {
@@ -219,39 +388,90 @@ function footers(doc: jsPDF) {
   }
 }
 
+// Gambar contain ke dalam sel (didDrawCell, sinkron — media di-preload dulu).
+function drawContain(doc: jsPDF, m: Media, x: number, y: number, w: number, h: number) {
+  if (!m) return;
+  const s = Math.min(w / m.w, h / m.h);
+  const dw = Math.max(2, m.w * s);
+  const dh = Math.max(2, m.h * s);
+  doc.addImage(m.dataUrl, m.ext === "png" ? "PNG" : "JPEG", x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+}
+
 export function buildRekapPdf(o: RekapOpts & { rows: FeedEntry[] }): Blob {
-  const periode = periodeLabel(o.dari, o.sampai);
   const sch = (o.dir ?? defaultDir).school;
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  const guruName = o.tipe === "guru" ? guruPengampu(o, o.rows) : o.rows[0]?.teacher || "-";
+  const dateStr = o.sampai ? fmtID(o.sampai) : o.dari ? fmtID(o.dari) : "-";
+
   if (o.tipe === "guru") {
-    kopPdf(doc, "Rekap Kehadiran Guru", periode, sch);
+    // Varian sinkron (tanpa embed gambar — untuk pemakaian langsung);
+    // downloadRekap memakai buildRekapPdfAsync yang meng-embed foto/TTD.
+    let y = kopPdf(doc, sch.name);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(12);
+    doc.text("LAPORAN JURNAL KEGIATAN BELAJAR MENGAJAR", doc.internal.pageSize.getWidth() / 2, y, { align: "center" });
+    y = metaPdf(doc, y + 7,
+      ["Tahun Pelajaran", `${sch.academicYear}`], ["Semester", sch.semester],
+      ["Guru Pengampu", guruName], ["Periode", metaPeriode(o.dari, o.sampai)]);
     autoTable(doc, {
-      startY: 37,
-      head: [["No", "Tanggal", "Guru", "Mapel", "Kelas", "Jam (slot guru)", "Materi", "Status", "Keterangan"]],
-      body: o.rows.map((j, i) => [i + 1, fmtID(j.date), j.teacher, j.subject, j.class, j.schedule || "-", j.material || "-", statusID(j.teacher_status), keterangan(j)]),
-      foot: [[{ content: `TOTAL (${o.rows.length} jurnal) · Hadir: ${o.rows.filter((j) => j.teacher_status === "hadir").length} · Izin: ${o.rows.filter((j) => j.teacher_status === "izin").length} · Sakit: ${o.rows.filter((j) => j.teacher_status === "sakit").length}`, colSpan: 9 }]],
-      styles: { fontSize: 8 },
-      headStyles: { fillColor: [46, 91, 255], textColor: 255, fontStyle: "bold" },
-      footStyles: { fillColor: [240, 244, 255], textColor: 30, fontStyle: "bold" },
+      startY: y + 4,
+      head: [["No", "Hari & Tanggal", "Jam Pelaksanaan", "Kelas", "Nama Guru", "Materi Pembelajaran", "Catatan", "Foto Dokumentasi", "Tanda Tangan Guru"]],
+      body: o.rows.map((j, i) => [
+        i + 1, hariTanggal(j.date), jamRange(j.schedule), j.class, j.teacher,
+        j.material || "-", j.notes || "-", j.photo ? "Ada" : "-", j.signature ? "Ada" : "-",
+      ]),
+      styles: { fontSize: 8, valign: "middle" },
+      headStyles: { fontStyle: "bold" },
+      theme: "grid",
     });
-  } else {
-    kopPdf(doc, "Rekap Kehadiran Siswa", periode, sch);
-    const tot = { h: 0, s: 0, i: 0, a: 0 };
-    o.rows.forEach((j) => { tot.h += j.stats.hadir; tot.s += j.stats.sakit; tot.i += j.stats.izin; tot.a += j.stats.alpha; });
+    ttdPdf(doc, (doc as any).lastAutoTable.finalY + 8, guruName, dateStr);
+    footers(doc);
+    return doc.output("blob");
+  }
+
+  let y = kopPdf(doc, sch.name);
+  doc.setFont("helvetica", "bold"); doc.setFontSize(12);
+  doc.text("LAPORAN REKAPITULASI KEHADIRAN SISWA", doc.internal.pageSize.getWidth() / 2, y, { align: "center" });
+  y = metaPdf(doc, y + 7,
+    ["Tahun Pelajaran", `${sch.academicYear}`], ["Semester", sch.semester],
+    ["Kelas", kelasMeta(o, o.rows)], ["Periode", metaPeriode(o.dari, o.sampai)]);
+  const dir = o.dir ?? defaultDir;
+  const withAtt = o.rows.filter((j) => (j.attendances || []).length > 0);
+  autoTable(doc, {
+    startY: y + 4,
+    head: [["No", "Hari & Tanggal", "Kelas", "NISN", "Nama", "H", "S", "I", "A"]],
+    body: withAtt.flatMap((j) => (j.attendances || []).map((at) => {
+      const st = studentOf(at.student_id, dir.students);
+      return ["", hariTanggal(j.date), j.class, st?.nisn || "-", st?.name || at.student_id,
+        at.status === "hadir" ? "✓" : "", at.status === "sakit" ? "✓" : "",
+        at.status === "izin" ? "✓" : "", at.status === "alpha" ? "✓" : ""];
+    })).map((r, i) => [i + 1, ...r.slice(1)]),
+    styles: { fontSize: 8, valign: "middle" },
+    headStyles: { fontStyle: "bold" },
+    theme: "grid",
+    columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 38 }, 2: { cellWidth: 24 }, 3: { cellWidth: 24 }, 5: { cellWidth: 10 }, 6: { cellWidth: 10 }, 7: { cellWidth: 10 }, 8: { cellWidth: 10 } },
+  });
+  const rest = o.rows.filter((j) => !(j.attendances || []).length);
+  if (rest.length) {
     autoTable(doc, {
-      startY: 37,
-      head: [["No", "Tanggal", "Kelas", "Guru", "H", "S", "I", "A"]],
-      body: o.rows.map((j, i) => [i + 1, fmtID(j.date), j.class, j.teacher, j.stats.hadir, j.stats.sakit, j.stats.izin, j.stats.alpha]),
-      foot: [[{ content: `TOTAL (${o.rows.length} jurnal)`, colSpan: 4 }, tot.h, tot.s, tot.i, tot.a]],
-      styles: { fontSize: 9 },
-      headStyles: { fillColor: [46, 91, 255], textColor: 255, fontStyle: "bold" },
-      footStyles: { fillColor: [240, 244, 255], textColor: 30, fontStyle: "bold" },
+      startY: (doc as any).lastAutoTable.finalY + 6,
+      head: [["No", "Hari & Tanggal", "Kelas", "Guru", "H", "S", "I", "A", "Total"]],
+      body: rest.map((j, i) => {
+        const t = j.stats.hadir + j.stats.sakit + j.stats.izin + j.stats.alpha;
+        return [i + 1, hariTanggal(j.date), j.class, j.teacher, j.stats.hadir, j.stats.sakit, j.stats.izin, j.stats.alpha, t];
+      }),
+      styles: { fontSize: 8, valign: "middle" },
+      headStyles: { fontStyle: "bold" },
+      theme: "grid",
     });
   }
-  const y = (doc as any).lastAutoTable?.finalY || 60;
-  ttdBlock(doc, y);
+  ttdPdf(doc, (doc as any).lastAutoTable.finalY + 8, guruName, dateStr);
   footers(doc);
   return doc.output("blob");
+}
+
+// Guru butuh preload media (async) → dipisah agar buildRekapPdf tetap sinkron.
+async function buildGuruMedia(rows: FeedEntry[]) {
+  return Promise.all(rows.map(async (j) => ({ foto: await fetchMedia(j.photo), ttd: await fetchMedia(j.signature) })));
 }
 
 // ---------- Unduhan ----------
@@ -299,7 +519,48 @@ export async function downloadRekap(o: RekapOpts & { format: "pdf" | "xlsx" }): 
     const buf = await buildRekapExcel({ ...o, rows });
     saveBlob(new Blob([buf as unknown as BlobPart], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), filename);
   } else {
-    saveBlob(buildRekapPdf({ ...o, rows }), filename);
+    saveBlob(await buildRekapPdfAsync({ ...o, rows }), filename);
   }
   return "local";
+}
+
+// PDF guru butuh preload gambar → varian async; fallback sinkron bila preload gagal total.
+export async function buildRekapPdfAsync(o: RekapOpts & { rows: FeedEntry[] }): Promise<Blob> {
+  if (o.tipe !== "guru") return buildRekapPdf(o);
+  const sch = (o.dir ?? defaultDir).school;
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  const guruName = guruPengampu(o, o.rows);
+  const dateStr = o.sampai ? fmtID(o.sampai) : o.dari ? fmtID(o.dari) : "-";
+  let y = kopPdf(doc, sch.name);
+  doc.setFont("helvetica", "bold"); doc.setFontSize(12);
+  doc.text("LAPORAN JURNAL KEGIATAN BELAJAR MENGAJAR", doc.internal.pageSize.getWidth() / 2, y, { align: "center" });
+  y = metaPdf(doc, y + 7,
+    ["Tahun Pelajaran", `${sch.academicYear}`], ["Semester", sch.semester],
+    ["Guru Pengampu", guruName], ["Periode", metaPeriode(o.dari, o.sampai)]);
+  const media = await buildGuruMedia(o.rows);
+  autoTable(doc, {
+    startY: y + 4,
+    head: [["No", "Hari & Tanggal", "Jam Pelaksanaan", "Kelas", "Nama Guru", "Materi Pembelajaran", "Catatan", "Foto Dokumentasi", "Tanda Tangan Guru"]],
+    body: o.rows.map((j, i) => [
+      i + 1, hariTanggal(j.date), jamRange(j.schedule), j.class, j.teacher,
+      j.material || "-", j.notes || "-",
+      media[i].foto ? " " : j.photo ? "Ada" : "-", media[i].ttd ? " " : j.signature ? "Ada" : "-",
+    ]),
+    styles: { fontSize: 8, valign: "middle", minCellHeight: 24 },
+    headStyles: { fontStyle: "bold" },
+    theme: "grid",
+    columnStyles: {
+      0: { cellWidth: 8 }, 1: { cellWidth: 30 }, 2: { cellWidth: 24 }, 3: { cellWidth: 22 },
+      4: { cellWidth: 30 }, 5: { cellWidth: 44 }, 6: { cellWidth: 44 }, 7: { cellWidth: 36 }, 8: { cellWidth: 39 },
+    },
+    didDrawCell: (d: any) => {
+      if (d.section !== "body") return;
+      const m = d.column.index === 7 ? media[d.row.index]?.foto : d.column.index === 8 ? media[d.row.index]?.ttd : null;
+      if (!m) return;
+      drawContain(doc, m, d.cell.x + 2, d.cell.y + 2, d.cell.width - 4, d.cell.height - 4);
+    },
+  });
+  ttdPdf(doc, (doc as any).lastAutoTable.finalY + 8, guruName, dateStr);
+  footers(doc);
+  return doc.output("blob");
 }
