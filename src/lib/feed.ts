@@ -38,6 +38,30 @@ export type FeedEntry = {
 
 const emptyStats = () => ({ hadir: 0, sakit: 0, izin: 0, alpha: 0 });
 
+export type Stats = { hadir: number; sakit: number; izin: number; alpha: number };
+
+// SATU helper hitung stats dari attendances feed — dipakai riwayat, dashboard, export.
+// Arsip lokal basi/nol dihitung ulang dari attendances-nya; tanpa rincian → fallback tersimpan.
+export function resolveStats(
+  attendances?: { student_id: string; status: string }[] | null,
+  fallback?: Partial<Stats> | null,
+): Stats {
+  const s = emptyStats();
+  let n = 0;
+  (attendances || []).forEach((a) => {
+    const k = String(a?.status || "").toLowerCase() as keyof Stats;
+    if (k in s) { s[k]++; n++; }
+  });
+  if (n > 0) return s;
+  if (fallback) {
+    return {
+      hadir: fallback.hadir || 0, sakit: fallback.sakit || 0,
+      izin: fallback.izin || 0, alpha: fallback.alpha || 0,
+    };
+  }
+  return s;
+}
+
 // SATU komparator newest-first untuk semua sumber & viewport:
 // date desc → created_at desc → id desc (tiebreak deterministik).
 // Jurnal baru tersimpan selalu muncul PALING ATAS di semua device.
@@ -179,12 +203,10 @@ export async function getFeedFirestore(limitN = 60, opts?: { since?: string }): 
   });
   return js.map((j) => {
     const l = byJ.get(j.id) || [];
-    const stats = { hadir: 0, sakit: 0, izin: 0, alpha: 0 };
-    l.forEach((a) => {
-      const k = String(a.status || "").toLowerCase() as keyof typeof stats;
-      if (k in stats) stats[k]++;
-    });
     const base = normalizeRemote(j, "firestore");
+    const attList = l.length
+      ? l.map((a) => ({ student_id: a.student_id, status: String(a.status).toLowerCase() }))
+      : base.attendances;
     // Embed dulu; join direktori (dunia sama) hanya bila embed kosong.
     const schedLabel = base.schedule !== "-"
       ? base.schedule
@@ -196,8 +218,8 @@ export async function getFeedFirestore(limitN = 60, opts?: { since?: string }): 
       subject: base.subject === "-" && j.subject_id ? subName(j.subject_id) : base.subject,
       schedule: schedLabel,
       material: base.material || j.custom_material || matTitle(j.material_id) || "-",
-      stats: l.length ? stats : base.stats,
-      attendances: l.length ? l.map((a) => ({ student_id: a.student_id, status: String(a.status).toLowerCase() })) : base.attendances,
+      stats: resolveStats(attList, base.stats),
+      attendances: attList,
     };
   });
 }

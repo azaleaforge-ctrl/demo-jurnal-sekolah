@@ -12,7 +12,7 @@ import { journals } from "@/src/lib/mock";
 import { Lightbox } from "@/src/components/lightbox";
 import { listDocs, useDirectory, getSetting, mockSetting, rewriteAttendances } from "@/src/lib/db";
 import { downloadRekap, type ExportDir } from "@/src/lib/export";
-import { byNewest, type FeedEntry } from "@/src/lib/feed";
+import { byNewest, resolveStats, type FeedEntry } from "@/src/lib/feed";
 import { slotLabel, rangeLabel } from "@/src/lib/slots";
 import { cn, byName } from "@/src/lib/utils";
 import type { SavedJournal } from "../jurnal-baru/page";
@@ -94,14 +94,21 @@ export default function RiwayatPage() {
         const js = user?.id
           ? await listDocs("journals", { wheres: [["teacher_id", "==", user.id]] })
           : [];
+        // Attendances feed untuk journal tampil (chunk `in`) — sumber stats yang sama dengan export.
+        const jids = js.filter((j) => !seen.has(j.id)).map((j) => j.id);
+        const attByJ = new Map<string, { student_id: string; status: string }[]>();
+        for (let i = 0; i < jids.length; i += 30) {
+          const chunk = jids.slice(i, i + 30);
+          if (!chunk.length) continue;
+          (await listDocs("student_attendances", { wheres: [["journal_id", "in", chunk]] })).forEach((a) => {
+            const l = attByJ.get(a.journal_id) || [];
+            l.push({ student_id: a.student_id, status: String(a.status || "").toLowerCase() });
+            attByJ.set(a.journal_id, l);
+          });
+        }
         const remote: Row[] = js
           .filter((j) => !seen.has(j.id))
           .map((j) => {
-            const stats = { hadir: 0, sakit: 0, izin: 0, alpha: 0 };
-            (j.attendances || []).forEach((a: any) => {
-              const k = String(a.status || "").toLowerCase() as keyof typeof stats;
-              if (k in stats) stats[k]++;
-            });
             return {
               id: j.id, teacher: user?.name || "Saya",
               class: lbl(j.class_name, j.class, clsName(j.class_id)),
@@ -111,23 +118,29 @@ export default function RiwayatPage() {
               notes: j.notes || "", photo: j.photo_url || "", signature: j.signature_url || "",
               teacher_status: j.teacher_status || "hadir",
               leave_note: j.leave_note, sick_letter_name: j.sick_letter_url ? String(j.sick_letter_url).split("/").pop() : undefined,
-              sick_letter_note: j.sick_letter_note, stats,
+              sick_letter_note: j.sick_letter_note, stats: { hadir: 0, sakit: 0, izin: 0, alpha: 0 },
               class_id: j.class_id, subject_id: j.subject_id, teacher_id: j.teacher_id,
               schedule: lbl(j.schedule_label, j.schedule, schName(j.schedule_id, j.schedule_end_id)) || undefined,
-              schedule_id: j.schedule_id, schedule_end_id: j.schedule_end_id, attendances: j.attendances,
+              schedule_id: j.schedule_id, schedule_end_id: j.schedule_end_id,
+              attendances: attByJ.get(j.id) ?? j.attendances,
             } as Row;
           });
         const fallback = mine.length || remote.length ? [] : journals.map((j) => ({
           ...j, teacher_status: "hadir" as const, leave_note: undefined,
           sick_letter_name: undefined, sick_letter_note: undefined,
         }));
-        setRows([...mine, ...remote, ...fallback].sort(byNewest));
+        // SATU pintu: hitung ulang dari attendances, fallback ke stats tersimpan.
+        setRows([...mine, ...remote, ...fallback]
+          .map((r: any) => ({ ...r, stats: resolveStats(r.attendances, r.stats) }))
+          .sort(byNewest));
       } catch {
         const fallback = mine.length ? [] : journals.map((j) => ({
           ...j, teacher_status: "hadir" as const, leave_note: undefined,
           sick_letter_name: undefined, sick_letter_note: undefined,
         }));
-        setRows([...mine, ...fallback].sort(byNewest));
+        setRows([...mine, ...fallback]
+          .map((r: any) => ({ ...r, stats: resolveStats(r.attendances, r.stats) }))
+          .sort(byNewest));
         if (!toastRef.current) { toastRef.current = true; toast.info("Mode demo — memakai data lokal."); }
       } finally {
         setLoading(false);
@@ -186,8 +199,7 @@ export default function RiwayatPage() {
     if (!editing || savingAtt) return;
     setSavingAtt(true);
     const list = rosterFor(editing).map((s) => ({ student_id: s.id, status: att[s.id] || "hadir" }));
-    const stats = { hadir: 0, sakit: 0, izin: 0, alpha: 0 };
-    list.forEach((a) => { stats[a.status as keyof typeof stats]++; });
+    const stats = resolveStats(list);
     let remote = true;
     try {
       await rewriteAttendances(editing.id, list);
