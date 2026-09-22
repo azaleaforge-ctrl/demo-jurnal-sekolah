@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import type { Role } from "./mock";
 import { users } from "./mock";
 import { apiClient } from "./api";
-import { findUserByEmail } from "./db";
+import { findUserByEmail, listDocs } from "./db";
 
 type User = { id: string; name: string; email: string; role: Role };
 type Ctx = {
@@ -36,23 +36,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(res.user);
       return res.user;
     } catch {}
-    // 2) Mode trial: email harus ada di koleksi users, role ikut data (§5)
+    // 2) Mode trial: email harus ada di koleksi users, role ikut data (§5).
+    //    Toleran beda domain seed lama/baru: cocokkan local-part (sebelum @).
     try {
-      const d = await findUserByEmail(mail);
-      if (!d) throw new Error("Akun tidak ditemukan. Minta admin mendaftarkan email ini.");
-      const u: User = { id: d.id, name: d.name, email: d.email, role: d.role };
-      localStorage.setItem("token", "trial-token");
-      localStorage.setItem("user", JSON.stringify(u));
-      setUser(u);
-      return u;
+      const local = mail.split("@")[0];
+      const d =
+        (await findUserByEmail(mail)) ||
+        (await listDocs("users")).find((x: any) => String(x.email || "").split("@")[0] === local);
+      if (d) {
+        const u: User = { id: d.id, name: d.name, email: d.email, role: d.role };
+        localStorage.setItem("token", "trial-token");
+        localStorage.setItem("user", JSON.stringify(u));
+        setUser(u);
+        return u;
+      }
     } catch (e: any) {
       if (e.message !== "Firestore tak terjangkau") throw e;
     }
-    // 3) Fallback mock bila Firestore tak terjangkau
+    // 3) Fallback mock bila Firestore tak terjangkau / email belum di-seed
     const u =
       users.find((x) => x.email === mail && x.role === role) ||
       users.find((x) => x.role === role);
-    if (!u) throw new Error("Akun tidak ditemukan");
+    if (!u) throw new Error("Akun tidak ditemukan. Minta admin mendaftarkan email ini.");
     localStorage.setItem("token", "demo-token");
     localStorage.setItem("user", JSON.stringify(u));
     setUser(u);

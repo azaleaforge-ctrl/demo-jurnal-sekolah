@@ -110,7 +110,7 @@ export async function runSeed(onProgress: SeedProgress): Promise<{ skipped: stri
     const items: any[] = GURU.map((name, i) => {
       const code = MAPEL[i % MAPEL.length][1];
       return {
-        name, email: slugEmail(name, "Nusantara Cerdas"), role: "guru",
+        name, email: slugEmail(name, "SMK Nusantara Cerdas"), role: "guru",
         password: randPw(), subject_ids: [subjectIds[code] || code],
       };
     });
