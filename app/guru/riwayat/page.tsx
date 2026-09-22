@@ -9,6 +9,7 @@ import { Badge, Empty, Skeleton } from "@/src/components/ui/misc";
 import { journals } from "@/src/lib/mock";
 import { Lightbox } from "@/src/components/lightbox";
 import { listDocs, useDirectory } from "@/src/lib/db";
+import { slotLabel } from "@/src/lib/slots";
 import type { SavedJournal } from "../jurnal-baru/page";
 
 type Row = Omit<SavedJournal, "teacher"> & { teacher: string };
@@ -32,7 +33,7 @@ export default function RiwayatPage() {
       const seen = new Set(mine.map((m) => m.id));
       const clsName = (id?: string) => dir.classes.find((c) => c.id === id)?.name || "-";
       const subName = (id?: string) => dir.subjects.find((s) => s.id === id)?.name || "-";
-      const schName = (id?: string) => dir.schedules.find((s) => s.id === id)?.name;
+      const schName = (id?: string) => slotLabel(dir.schedules, id) || undefined;
       try {
         // Riwayat pribadi: journals where teacher_id = saya
         const js = user?.id

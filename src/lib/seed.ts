@@ -24,7 +24,8 @@ const MATERI: Record<string, string[]> = {
   PJOK: ["Atletik Lari Jarak Pendek", "Permainan Bola Besar", "Kebugaran Jasmani"],
 };
 const GURU = ["Rina Marlina", "Agus Wijaya", "Siti Rahma", "Dewi Lestari", "Bambang Sutrisno", "Ratna Sari", "Hendra Pratama", "Yuni Astuti", "Dedi Kurniawan", "Maya Puspita", "Rudi Hartono", "Nina Kurnia", "Fajar Nugroho", "Lina Marlina"];
-const JAM = ["07.00 - 07.45", "07.45 - 08.30", "08.30 - 09.15", "09.30 - 10.15", "10.15 - 11.00", "11.00 - 11.45", "12.30 - 13.15", "13.15 - 14.00"];
+const JAM_MULAI = ["07.00", "07.45", "08.30", "09.30", "10.15", "11.00", "12.30", "13.15"];
+const JAM_SELESAI = ["07.45", "08.30", "09.15", "10.15", "11.00", "11.45", "13.15", "14.00"];
 
 const randPw = () => Math.random().toString(36).slice(2, 12);
 
@@ -99,9 +100,12 @@ export async function runSeed(onProgress: SeedProgress): Promise<{ skipped: stri
   } else skipped.push("materials");
   step("Materi");
 
-  // schedules 8 slot
+  // schedules: 8 mulai + 8 selesai (§5: kind + time + order)
   if ((await countDocs("schedules")) === 0) {
-    added.schedules = await batchAdd("schedules", JAM.map((t, i) => ({ name: `Jam ${i + 1} (${t})`, order: i + 1 })));
+    const items: any[] = [];
+    JAM_MULAI.forEach((time, i) => items.push({ name: `Jam ${i + 1} mulai`, time, kind: "mulai", order: i + 1 }));
+    JAM_SELESAI.forEach((time, i) => items.push({ name: `Jam ${i + 1} selesai`, time, kind: "selesai", order: i + 1 }));
+    added.schedules = await batchAdd("schedules", items);
   } else skipped.push("schedules");
   step("Jam mengajar");
 

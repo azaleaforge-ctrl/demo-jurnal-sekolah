@@ -62,9 +62,11 @@
 │   ├── created_at: timestamp
 │   └── updated_at: timestamp
 │
-├── schedules (Collection - Jam Pelajaran = SLOT MENGAJAR GURU)
+├── schedules (Collection - Jam = SLOT MENGAJAR GURU, 2 daftar: mulai & selesai)
 │   ├── id: string
-│   ├── name: string (contoh: "Jam 1 (07.00 - 07.45)")
+│   ├── name: string (contoh: "Jam 1 mulai" / "07.00")
+│   ├── time: string (HH.MM, contoh: "07.00")
+│   ├── kind: string (mulai / selesai)
 │   ├── order: number
 │   ├── created_at: timestamp
 │   └── updated_at: timestamp
@@ -142,7 +144,7 @@
 * `GET|POST|PUT|DELETE /classes` - Master Data Kelas.
 * `GET|POST|PUT|DELETE /subjects` - Master Data Mapel.
 * `GET|POST|PUT|DELETE /materials` - Master Data ATP/Materi.
-* `GET|POST|PUT|DELETE /schedules` - Master Data Jam Pelajaran (slot/shift mengajar guru).
+* `GET|POST|PUT|DELETE /schedules` - Master Data Jam (2 daftar: jam mulai & jam selesai, field `kind` + `time`; slot tampil = pasangan mulai–selesai se-`order`, mis. "Jam 1 (07.00 - 07.45)").
 * `GET|POST|PUT|DELETE /students` - Master Data Siswa (manual, per kelas — tanpa jam).
 * `POST /students/import` - Import siswa via `multipart file (.xlsx/.csv)`, dedup by `nisn`, validasi `class_id` per baris.
 * `GET /students/template` - Unduh template Excel import siswa.
@@ -237,6 +239,6 @@
   * Export (`/export/*`) → generate client dari feed (Excel styled + PDF kop) selama backend Laravel mati.
 * **Seed demo realistis** (via tombol "Isi Data Demo" di Pengaturan, idempotent — skip bila koleksi sudah berisi):
   6 kelas × ±30 siswa (nama Indonesia asli, NISN unik), ±14 guru sesuai mapel + 1 admin + 1 kepsek,
-  ±10 mapel berkode, 3–4 materi per mapel, 8 slot jam, `school_settings` terisi.
+  ±10 mapel berkode, 3–4 materi per mapel, 8 jam mulai + 8 jam selesai, `school_settings` terisi.
 * **Batasan trial jujur:** tanpa password (login cek email), tanpa validasi server (client menegakkan §4),
   rules terbuka khusus ujicoba — naik ke Laravel + Sanctum untuk produksi.

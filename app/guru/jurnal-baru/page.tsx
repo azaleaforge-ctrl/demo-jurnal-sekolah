@@ -16,6 +16,7 @@ import { normalizePhoto, normalizeSignature } from "@/src/lib/media";
 import { appendFeed } from "@/src/lib/feed";
 import { Lightbox } from "@/src/components/lightbox";
 import { useDirectory, getSetting, mockSetting, setDocTo, batchAdd, removeDoc, uploadBlob, uploadFile, uploadPhotoJournal, uploadSignature, uploadSickLetter } from "@/src/lib/db";
+import { pairSlots, slotLabel } from "@/src/lib/slots";
 import { todayID } from "@/src/lib/utils";
 
 type TeacherStatus = "hadir" | "izin" | "sakit";
@@ -299,7 +300,7 @@ function Wizard() {
         sick_letter_note: teacherStatus === "sakit" && sickNote.trim() ? sickNote.trim() : undefined,
         stats,
         class_id: classId, subject_id: subjectId, teacher_id: user?.id,
-        schedule: schedules.find((s) => s.id === scheduleId)?.name, schedule_id: scheduleId,
+        schedule: slotLabel(schedules, scheduleId), schedule_id: scheduleId,
         attendances: attList,
       };
       try {
@@ -386,7 +387,7 @@ function Wizard() {
                   <p className="-mt-2 text-xs text-slate-500">Jam ini slot/shift mengajar guru — absensi siswa selalu seluruh kelas yang dipilih.</p>
                   <Select label="Jam mengajar (slot guru)" value={scheduleId} onChange={(e) => setScheduleId(e.target.value)}>
                     <option value="">Pilih jam mengajar</option>
-                    {schedules.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    {pairSlots(schedules).map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
                   </Select>
                   {!useManual ? (
                     <Select label="ATP / Materi" value={materialId} onChange={(e) => setMaterialId(e.target.value)}>
@@ -499,7 +500,7 @@ function Wizard() {
       <aside className="hidden h-fit rounded-3xl bg-ink p-5 text-white lg:block">
         <p className="text-xs font-bold uppercase tracking-widest text-white/50">Live preview</p>
         <p className="font-display mt-1 text-lg font-bold">{mapelName}</p>
-        <p className="text-sm text-white/60">{kelasName} · {schedules.find((s) => s.id === scheduleId)?.name || "Jam belum dipilih"}</p>
+        <p className="text-sm text-white/60">{kelasName} · {slotLabel(schedules, scheduleId) || "Jam belum dipilih"}</p>
         <p className="mt-1 text-xs font-bold capitalize text-accent-400">Saya: {teacherStatus}</p>
         <div className="mt-3 rounded-2xl bg-white/10 p-3 text-sm">
           <p className="font-bold text-accent-400">Materi</p>

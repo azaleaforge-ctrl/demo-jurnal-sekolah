@@ -20,11 +20,16 @@ export const subjects = [
   { id: "m4", name: "PKN", code: "PKN" },
 ];
 
+// Fallback: 2 daftar mulai & selesai (§5) — tampil berpasangan "Jam N (mulai - selesai)".
 export const schedules = [
-  { id: "j1", name: "Jam 1 (07.00 – 07.45)", order: 1 },
-  { id: "j2", name: "Jam 2 (07.45 – 08.30)", order: 2 },
-  { id: "j3", name: "Jam 3 (08.30 – 09.15)", order: 3 },
-  { id: "j4", name: "Jam 4 (09.30 – 10.15)", order: 4 },
+  { id: "j1m", name: "Jam 1 mulai", time: "07.00", kind: "mulai", order: 1 },
+  { id: "j1s", name: "Jam 1 selesai", time: "07.45", kind: "selesai", order: 1 },
+  { id: "j2m", name: "Jam 2 mulai", time: "07.45", kind: "mulai", order: 2 },
+  { id: "j2s", name: "Jam 2 selesai", time: "08.30", kind: "selesai", order: 2 },
+  { id: "j3m", name: "Jam 3 mulai", time: "08.30", kind: "mulai", order: 3 },
+  { id: "j3s", name: "Jam 3 selesai", time: "09.15", kind: "selesai", order: 3 },
+  { id: "j4m", name: "Jam 4 mulai", time: "09.30", kind: "mulai", order: 4 },
+  { id: "j4s", name: "Jam 4 selesai", time: "10.15", kind: "selesai", order: 4 },
 ];
 
 export const materials = [
