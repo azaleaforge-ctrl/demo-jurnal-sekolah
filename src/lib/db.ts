@@ -61,6 +61,24 @@ export async function removeDoc(name: string, id: string): Promise<void> {
   await deleteDoc(doc(needDb(), name, id));
 }
 
+// Tulis balik absensi per jurnal: hapus batch lama + tulis batch baru (kompensasi §4.6).
+export async function rewriteAttendances(journalId: string, items: { student_id: string; status: string }[]): Promise<void> {
+  const d = needDb();
+  const old = await listDocs("student_attendances", { wheres: [["journal_id", "==", journalId]] });
+  const ops: Array<{ t: "del"; id: string } | { t: "set"; data: any }> = [
+    ...old.map((o) => ({ t: "del" as const, id: o.id })),
+    ...items.map((data) => ({ t: "set" as const, data: { journal_id: journalId, ...data } })),
+  ];
+  for (let i = 0; i < ops.length; i += 500) {
+    const b = writeBatch(d);
+    ops.slice(i, i + 500).forEach((op) => {
+      if (op.t === "del") b.delete(doc(d, "student_attendances", op.id));
+      else b.set(doc(collection(d, "student_attendances")), stamp(op.data));
+    });
+    await b.commit();
+  }
+}
+
 // writeBatch ≤500 otomatis di-chunk.
 export async function batchAdd(name: string, items: any[]): Promise<number> {
   const d = needDb();

@@ -52,8 +52,13 @@ export default function ExportPage() {
     teachers: dir.users.filter((u) => u.role === "guru").map((t) => ({ id: t.id, name: t.name })),
   }), [dir, sch]);
 
-  const rows = useMemo(() => filterRekap(feed, dari, sampai, classId, teacherId, xdir), [feed, dari, sampai, classId, teacherId, xdir]);
-  const guruSet = useMemo(() => new Set(rows.map((r) => r.teacher)), [rows]);
+  const rows = useMemo(() => {
+    try {
+      return filterRekap(feed, dari, sampai, { tipe, classId: classId || undefined, teacherId: teacherId || undefined }, xdir);
+    } catch {
+      return [];
+    }
+  }, [feed, dari, sampai, classId, teacherId, tipe, xdir]);
   const siswaCount = useMemo(() => {
     const clsNames = new Set(rows.map((r) => r.class));
     return xdir.students.filter((s) => clsNames.has(xdir.classes.find((c) => c.id === s.class_id)?.name || "")).length;
@@ -61,6 +66,9 @@ export default function ExportPage() {
 
   async function run(format: "xlsx" | "pdf") {
     if (busy) return;
+    // Filter terkunci §3E: guru → 1 guru wajib; siswa → 1 kelas wajib.
+    if (tipe === "guru" && !teacherId) return toast.error("Pilih guru terlebih dahulu.");
+    if (tipe === "siswa" && !classId) return toast.error("Pilih kelas terlebih dahulu.");
     const id = `${format}-${tipe}`;
     setBusy(id);
     try {
@@ -87,7 +95,7 @@ export default function ExportPage() {
               <span className="mb-1.5 block text-sm font-semibold text-slate-700">Tipe rekap</span>
               <div className="flex gap-1 rounded-xl bg-slate-100 p-1 text-sm font-semibold">
                 {(["guru", "siswa"] as const).map((t) => (
-                  <button key={t} onClick={() => setTipe(t)} className={cn("min-h-[44px] flex-1 rounded-lg px-3 py-1.5 capitalize sm:min-h-0 sm:flex-none sm:px-4", tipe === t ? "bg-white shadow-soft" : "text-slate-500")}>
+                  <button key={t} onClick={() => { setTipe(t); setClassId(""); setTeacherId(""); }} className={cn("min-h-[44px] flex-1 rounded-lg px-3 py-1.5 capitalize sm:min-h-0 sm:flex-none sm:px-4", tipe === t ? "bg-white shadow-soft" : "text-slate-500")}>
                     {t === "guru" ? "Guru" : "Siswa"}
                   </button>
                 ))}
@@ -95,23 +103,29 @@ export default function ExportPage() {
             </div>
             <label className="min-w-0 text-sm font-semibold text-slate-700">Dari <input type="date" value={dari} onChange={(e) => setDari(e.target.value)} className="mt-1.5 block w-full max-w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal" /></label>
             <label className="min-w-0 text-sm font-semibold text-slate-700">Sampai <input type="date" value={sampai} onChange={(e) => setSampai(e.target.value)} className="mt-1.5 block w-full max-w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal" /></label>
-            <label className="min-w-0 text-sm font-semibold text-slate-700">Kelas
-              <select value={classId} onChange={(e) => setClassId(e.target.value)} className="mt-1.5 block w-full max-w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal">
-                <option value="">Semua</option>
-                {xdir.classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </label>
-            <label className="min-w-0 text-sm font-semibold text-slate-700">Guru
-              <select value={teacherId} onChange={(e) => setTeacherId(e.target.value)} className="mt-1.5 block w-full max-w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal">
-                <option value="">Semua</option>
-                {xdir.teachers.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
-            </label>
+            {tipe === "siswa" ? (
+              <label className="min-w-0 text-sm font-semibold text-slate-700">Kelas (wajib)
+                <select value={classId} onChange={(e) => setClassId(e.target.value)} className="mt-1.5 block w-full max-w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal">
+                  <option value="">Pilih kelas…</option>
+                  {xdir.classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </label>
+            ) : (
+              <label className="min-w-0 text-sm font-semibold text-slate-700">Guru (wajib)
+                <select value={teacherId} onChange={(e) => setTeacherId(e.target.value)} className="mt-1.5 block w-full max-w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal">
+                  <option value="">Pilih guru…</option>
+                  {xdir.teachers.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </label>
+            )}
           </div>
           <div className="mt-3 flex flex-wrap gap-2 rounded-xl bg-slate-50 px-4 py-3 text-sm">
             <span><b>{rows.length}</b> jurnal</span><span className="text-slate-300">·</span>
-            <span><b>{guruSet.size}</b> guru</span><span className="text-slate-300">·</span>
-            <span><b>{siswaCount}</b> siswa terdampak</span>
+            {tipe === "guru" ? (
+              <span className="truncate"><b>{xdir.teachers.find((t) => t.id === teacherId)?.name || "—"}</b></span>
+            ) : (
+              <span><b>{siswaCount}</b> siswa terdampak</span>
+            )}
           </div>
         </Card>
 
@@ -119,7 +133,11 @@ export default function ExportPage() {
           <div className="mt-4 grid place-items-center gap-2 rounded-2xl border border-dashed border-slate-200 bg-white px-6 py-12 text-center">
             <span className="grid size-12 place-items-center rounded-2xl bg-brand-50 text-brand-500"><Inbox size={22} /></span>
             <p className="font-display font-bold">Tidak ada data pada filter ini</p>
-            <p className="max-w-xs text-sm text-slate-500">Longgarkan rentang tanggal atau pilih kelas/guru lain.</p>
+            <p className="max-w-xs text-sm text-slate-500">
+              {(tipe === "guru" && !teacherId) || (tipe === "siswa" && !classId)
+                ? `Pilih ${tipe === "guru" ? "guru" : "kelas"} terlebih dahulu.`
+                : "Longgarkan rentang tanggal."}
+            </p>
           </div>
         ) : (
           <div className="mt-4 grid gap-3 sm:grid-cols-2">

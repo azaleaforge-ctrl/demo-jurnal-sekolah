@@ -72,13 +72,22 @@ export function rekapFilename(tipe: RekapTipe, format: "pdf" | "xlsx", dari: str
   return `Rekap-${tipe === "guru" ? "Guru" : "Siswa"}-${p}.${format}`;
 }
 
-export function filterRekap(feed: FeedEntry[], dari: string, sampai: string, classId?: string, teacherId?: string, dir: ExportDir = defaultDir) {
-  const cls = classId ? dir.classes.find((c) => c.id === classId) : undefined;
-  const tch = teacherId ? dir.teachers.find((t) => t.id === teacherId) : undefined;
+export function filterRekap(
+  feed: FeedEntry[], dari: string, sampai: string,
+  flt: { tipe: RekapTipe; classId?: string; teacherId?: string },
+  dir: ExportDir = defaultDir,
+) {
+  const { tipe, classId, teacherId } = flt;
+  // Aturan §3E: guru → teacher_id TUNGGAL wajib (class_id diabaikan);
+  // siswa → class_id TUNGGAL wajib (teacher_id diabaikan).
+  if (tipe === "guru" && !teacherId) throw new Error("Pilih guru terlebih dahulu.");
+  if (tipe === "siswa" && !classId) throw new Error("Pilih kelas terlebih dahulu.");
+  const cls = tipe === "siswa" && classId ? dir.classes.find((c) => c.id === classId) : undefined;
+  const tch = tipe === "guru" && teacherId ? dir.teachers.find((t) => t.id === teacherId) : undefined;
   return feed
     .filter((f) => (!dari || f.date >= dari) && (!sampai || f.date <= sampai))
-    .filter((f) => !classId || f.class_id === classId || (!!cls && f.class === cls.name))
-    .filter((f) => !teacherId || (f as any).teacher_id === teacherId || (!!tch && f.teacher === tch.name))
+    .filter((f) => tipe !== "siswa" || !classId || f.class_id === classId || (!!cls && f.class === cls.name))
+    .filter((f) => tipe !== "guru" || !teacherId || (f as any).teacher_id === teacherId || (!!tch && f.teacher === tch.name))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
@@ -328,6 +337,34 @@ export async function buildRekapExcel(o: RekapOpts & { rows: FeedEntry[] }): Pro
     }
     ttdExcel(ws, r + 1, guruName, dateStr);
     printSetup(ws);
+
+    // Sheet 2 = TOTAL KESELURUHAN (H/S/I/A + %hadir) — agregat stats per kelas.
+    const ws2 = wb.addWorksheet("Total Keseluruhan");
+    ws2.columns = [{ width: 26 }, { width: 10 }, { width: 10 }, { width: 10 }, { width: 10 }, { width: 12 }];
+    kop3(ws2, sch.name, 6);
+    judulRow(ws2, 4, "TOTAL KESELURUHAN KEHADIRAN SISWA", 6);
+    ws2.mergeCells("A5:F5");
+    ws2.getRow(5).getCell(1).value = `Kelas: ${kelasMeta(o, o.rows)} · Periode: ${metaPeriode(o.dari, o.sampai)}`;
+    ws2.getRow(5).getCell(1).font = { size: 10 };
+    headerRow(ws2, 6, ["Kelas", "H", "S", "I", "A", "%Hadir"]);
+    const byCls = new Map<string, { h: number; s: number; i: number; a: number }>();
+    o.rows.forEach((j) => {
+      const g = byCls.get(j.class) || { h: 0, s: 0, i: 0, a: 0 };
+      g.h += j.stats.hadir; g.s += j.stats.sakit; g.i += j.stats.izin; g.a += j.stats.alpha;
+      byCls.set(j.class, g);
+    });
+    let r2 = 7;
+    const gt = { h: 0, s: 0, i: 0, a: 0 };
+    [...byCls.entries()].sort(([a], [b]) => a.localeCompare(b)).forEach(([name, g]) => {
+      const t = g.h + g.s + g.i + g.a;
+      gt.h += g.h; gt.s += g.s; gt.i += g.i; gt.a += g.a;
+      bodyRow(ws2, r2++, [name, g.h, g.s, g.i, g.a, t ? `${Math.round((g.h / t) * 100)}%` : "-"], false, 20);
+    });
+    const gtTot = gt.h + gt.s + gt.i + gt.a;
+    bodyRow(ws2, r2, ["TOTAL", gt.h, gt.s, gt.i, gt.a, gtTot ? `${Math.round((gt.h / gtTot) * 100)}%` : "-"], true, 20);
+    ws2.views = [{ state: "frozen", ySplit: 6 }];
+    ws2.autoFilter = { from: "A6", to: "F6" };
+    printSetup(ws2);
   }
   const buf = await wb.xlsx.writeBuffer();
   return buf as unknown as Uint8Array;
@@ -490,6 +527,34 @@ export function buildRekapPdf(o: RekapOpts & { rows: FeedEntry[] }): Blob {
       columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 38 }, 2: { cellWidth: 24 }, 3: { cellWidth: 30 }, 5: { cellWidth: 10 }, 6: { cellWidth: 10 }, 7: { cellWidth: 10 }, 8: { cellWidth: 14 } },
     });
   }
+  // TOTAL KESELURUHAN — selalu di halaman paling bawah/terakhir.
+  const byCls = new Map<string, { h: number; s: number; i: number; a: number }>();
+  o.rows.forEach((j) => {
+    const g = byCls.get(j.class) || { h: 0, s: 0, i: 0, a: 0 };
+    g.h += j.stats.hadir; g.s += j.stats.sakit; g.i += j.stats.izin; g.a += j.stats.alpha;
+    byCls.set(j.class, g);
+  });
+  const gt = { h: 0, s: 0, i: 0, a: 0 };
+  const gtBody: (string | number)[][] = [...byCls.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([name, g]) => {
+    const t = g.h + g.s + g.i + g.a;
+    gt.h += g.h; gt.s += g.s; gt.i += g.i; gt.a += g.a;
+    return [name, g.h, g.s, g.i, g.a, t ? `${Math.round((g.h / t) * 100)}%` : "-"];
+  });
+  const gtTot = gt.h + gt.s + gt.i + gt.a;
+  gtBody.push(["TOTAL KESELURUHAN", gt.h, gt.s, gt.i, gt.a, gtTot ? `${Math.round((gt.h / gtTot) * 100)}%` : "-"]);
+  let ty = (doc as any).lastAutoTable.finalY + 8;
+  if (ty > 150) { doc.addPage(); ty = 20; } // cek sisa ruang → halaman baru bila perlu
+  autoTable(doc, {
+    startY: ty,
+    margin: TABLE_MARGIN,
+    head: [["Kelas", "H", "S", "I", "A", "%Hadir"]],
+    body: gtBody,
+    styles: BODY_TXT,
+    bodyStyles: BODY_CENTER,
+    headStyles: HEAD_TXT,
+    theme: "grid",
+    columnStyles: { 1: { cellWidth: 14 }, 2: { cellWidth: 14 }, 3: { cellWidth: 14 }, 4: { cellWidth: 14 }, 5: { cellWidth: 18 } },
+  });
   ttdPdf(doc, (doc as any).lastAutoTable.finalY + 8, guruName, dateStr);
   footers(doc);
   return doc.output("blob");
@@ -535,9 +600,9 @@ async function tryRemoteRekap(o: RekapOpts, format: "pdf" | "xlsx", filename: st
   }
 }
 
-// Coba backend dulu, gagal → generate lokal. Lempar bila filter kosong.
+// Coba backend dulu, gagal → generate lokal. Lempar bila filter kosong / tak terkunci.
 export async function downloadRekap(o: RekapOpts & { format: "pdf" | "xlsx" }): Promise<"remote" | "local"> {
-  const rows = filterRekap(o.feed, o.dari, o.sampai, o.classId, o.teacherId, o.dir);
+  const rows = filterRekap(o.feed, o.dari, o.sampai, { tipe: o.tipe, classId: o.classId, teacherId: o.teacherId }, o.dir);
   if (!rows.length) throw new Error("Tidak ada data pada filter ini.");
   const filename = rekapFilename(o.tipe, o.format, o.dari, o.sampai);
   if (await tryRemoteRekap(o, o.format, filename)) return "remote";

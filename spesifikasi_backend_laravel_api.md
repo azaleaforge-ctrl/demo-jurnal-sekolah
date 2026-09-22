@@ -184,7 +184,10 @@
 ### E. Export API (`/api/v1/export`)
 
 * `GET /rekap-pdf?tipe=guru|siswa&...` - Stream PDF profesional (header sekolah, tabel presisi, kolom status kehadiran guru + TTD digital; kolom "Jam" = slot mengajar guru).
+  Aturan filter: guru → `teacher_id` TUNGGAL wajib (tanpa pilihan semua, tanpa `class_id`); siswa → `class_id` TUNGGAL wajib (tanpa semua kelas, tanpa `teacher_id`; data H/S/I/A murni per siswa).
+  Total: PDF diletakkan di halaman paling bawah/terakhir.
 * `GET /rekap-excel?tipe=guru|siswa&...` - File `.xlsx` asli (header berwarna, border, total otomatis).
+  Sheet 2 = TOTAL KESELURUHAN (H/S/I/A + %hadir). Aturan filter sama seperti PDF.
 
 ---
 
