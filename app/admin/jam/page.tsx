@@ -26,7 +26,7 @@ function JamTable({ kind, title, rows, loading, onAdd, onEdit, onDel }: {
     <Card className="min-w-0">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-display font-bold">{title}</h2>
-        <Button className="max-sm:w-full" onClick={onAdd}><Plus size={15} /> Jam {kind === "mulai" ? "Mulai" : "Selesai"}</Button>
+        <Button className="min-w-0 max-sm:w-full max-sm:justify-center" onClick={onAdd}><Plus size={15} className="shrink-0" /> <span className="truncate">Jam {kind === "mulai" ? "Mulai" : "Selesai"}</span></Button>
       </div>
       <div className="mt-3">
         {loading ? (
