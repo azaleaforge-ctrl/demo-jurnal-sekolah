@@ -16,6 +16,7 @@ export default function PengaturanPage() {
   const fb = mockSetting();
   const [nama, setNama] = useState(fb.school_name);
   const [tahun, setTahun] = useState(fb.academic_year);
+  const [kepsek, setKepsek] = useState(fb.principal_name || "Drs. Haryanto");
   const [smt, setSmt] = useState<"Ganjil" | "Genap">(fb.semester === "genap" ? "Genap" : "Ganjil");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -30,6 +31,7 @@ export default function PengaturanPage() {
           setNama(s.school_name);
           setTahun(s.academic_year);
           setSmt(s.semester === "genap" ? "Genap" : "Ganjil");
+          setKepsek(s.principal_name || "Drs. Haryanto");
         }
       } catch {
         toast.info("Mode demo — memakai data lokal.");
@@ -43,7 +45,7 @@ export default function PengaturanPage() {
     if (!nama.trim()) return toast.error("Nama sekolah wajib diisi.");
     setSaving(true);
     try {
-      await saveSetting({ school_name: nama.trim(), academic_year: tahun.trim(), semester: smt.toLowerCase() });
+      await saveSetting({ school_name: nama.trim(), academic_year: tahun.trim(), semester: smt.toLowerCase(), principal_name: kepsek.trim() || "Drs. Haryanto" });
       toast.success("Pengaturan sekolah disimpan.");
     } catch {
       toast.success("Mode demo — pengaturan disimpan lokal.");
@@ -80,6 +82,7 @@ export default function PengaturanPage() {
               <div className="mt-4 space-y-3">
                 <Input label="Nama sekolah" value={nama} onChange={(e) => setNama(e.target.value)} />
                 <Input label="Tahun ajaran" value={tahun} onChange={(e) => setTahun(e.target.value)} />
+                <Input label="Nama Kepala Sekolah" placeholder="Drs. Haryanto" value={kepsek} onChange={(e) => setKepsek(e.target.value)} />
                 <Button disabled={saving} onClick={save}>{saving ? "Menyimpan…" : "Simpan pengaturan"}</Button>
               </div>
             )}

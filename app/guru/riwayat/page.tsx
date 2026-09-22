@@ -37,15 +37,15 @@ export default function RiwayatPage() {
   const [savingAtt, setSavingAtt] = useState(false);
 
   const xdir: ExportDir = useMemo(() => ({
-    school: { name: sch.school_name, academicYear: sch.academic_year, semester: sch.semester.toLowerCase() === "genap" ? "Genap" : "Ganjil" },
+    school: { name: sch.school_name, academicYear: sch.academic_year, semester: sch.semester.toLowerCase() === "genap" ? "Genap" : "Ganjil", principalName: (sch as any).principal_name },
     students: dir.students.map((s) => ({ id: s.id, nisn: s.nisn, name: s.name, class_id: s.class_id })),
-    classes: dir.classes.map((c) => ({ id: c.id, name: c.name })),
+    classes: dir.classes.map((c) => ({ id: c.id, name: c.name, wali: (c as any).wali })),
     teachers: dir.users.filter((u) => u.role === "guru").map((t) => ({ id: t.id, name: t.name })),
   }), [dir, sch]);
 
   useEffect(() => {
     getSetting()
-      .then((s) => { if (s) setSch({ school_name: s.school_name, academic_year: s.academic_year, semester: s.semester.toLowerCase() === "genap" ? "Genap" : "Ganjil" }); })
+      .then((s) => { if (s) setSch({ school_name: s.school_name, academic_year: s.academic_year, semester: s.semester.toLowerCase() === "genap" ? "Genap" : "Ganjil", principal_name: s.principal_name }); })
       .catch(() => {});
   }, []);
 

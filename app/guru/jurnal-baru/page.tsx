@@ -73,7 +73,7 @@ function Wizard() {
   const { classes, subjects, schedules, materials, students } = d;
   const [setting, setSetting] = useState(mockSetting());
   useEffect(() => {
-    getSetting().then((s) => { if (s) setSetting({ school_name: s.school_name, academic_year: s.academic_year, semester: s.semester }); }).catch(() => {});
+    getSetting().then((s) => { if (s) setSetting({ school_name: s.school_name, academic_year: s.academic_year, semester: s.semester, principal_name: s.principal_name }); }).catch(() => {});
   }, []);
   const [step, setStep] = useState(0);
   const [dir, setDir] = useState(1);

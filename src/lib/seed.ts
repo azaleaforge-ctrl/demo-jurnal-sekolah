@@ -5,7 +5,10 @@ export type SeedProgress = (done: number, total: number, label: string) => void;
 
 const FIRST = ["Ayu", "Budi", "Citra", "Dimas", "Eka", "Fajar", "Gita", "Hendra", "Indra", "Joko", "Kirana", "Lukman", "Maya", "Nanda", "Oscar", "Putri", "Raka", "Sari", "Tono", "Utami", "Vina", "Wahyu", "Yoga", "Zahra", "Dewi", "Agus", "Rina", "Doni", "Fitri", "Hadi", "Irma", "Bagus", "Nina", "Rudi", "Sinta", "Andi", "Lestari", "Fikri", "Wulan", "Galih"];
 const LAST = ["Lestari", "Santoso", "Dewi", "Prasetyo", "Putri", "Ramadhan", "Ayu", "Gunawan", "Saputra", "Wijaya", "Kusuma", "Nugroho", "Rahmawati", "Setiawan", "Hidayat", "Anggraini"];
-const KELAS = ["X RPL 1", "X RPL 2", "XI RPL 1", "X TKJ 1", "XI TKJ 1", "XII MM 1"];
+const KELAS: [string, string][] = [
+  ["X RPL 1", "Rina Marlina"], ["X RPL 2", "Agus Wijaya"], ["XI RPL 1", "Bambang Sutrisno"],
+  ["X TKJ 1", "Siti Rahma"], ["XI TKJ 1", "Dewi Lestari"], ["XII MM 1", "Ratna Sari"],
+];
 const MAPEL: [string, string][] = [
   ["Matematika", "MTK"], ["Pemrograman Web", "PWEB"], ["Bahasa Indonesia", "BIND"],
   ["Pendidikan Kewarganegaraan", "PKN"], ["Pendidikan Agama", "PAI"], ["Sejarah", "SEJ"],
@@ -40,7 +43,7 @@ export async function runSeed(onProgress: SeedProgress): Promise<{ skipped: stri
   // school_settings
   const hasSetting = (await listDocs("school_settings", { limitN: 1 })).length > 0;
   if (!hasSetting) {
-    await setDocTo("school_settings", "main", { school_name: "SMK Nusantara Cerdas", academic_year: "2025/2026", semester: "ganjil" });
+    await setDocTo("school_settings", "main", { school_name: "SMK Nusantara Cerdas", academic_year: "2025/2026", semester: "ganjil", principal_name: "Drs. Haryanto" });
     added.school_settings = 1;
   } else skipped.push("school_settings");
   step("Pengaturan sekolah");
@@ -48,8 +51,8 @@ export async function runSeed(onProgress: SeedProgress): Promise<{ skipped: stri
   // classes
   const classIds: Record<string, string> = {};
   if ((await countDocs("classes")) === 0) {
-    const ids = await Promise.all(KELAS.map((name) => addDocTo("classes", { name })));
-    KELAS.forEach((n, i) => { classIds[n] = ids[i]; });
+    const ids = await Promise.all(KELAS.map(([name, wali]) => addDocTo("classes", { name, wali })));
+    KELAS.forEach(([n], i) => { classIds[n] = ids[i]; });
     added.classes = KELAS.length;
   } else {
     (await listDocs("classes")).forEach((c) => { classIds[c.name] = c.id; });
@@ -63,7 +66,7 @@ export async function runSeed(onProgress: SeedProgress): Promise<{ skipped: stri
     FIRST.forEach((f) => LAST.forEach((l) => { if (f !== l) combos.push(`${f} ${l}`); }));
     let k = 0;
     const items: any[] = [];
-    KELAS.forEach((kls) => {
+    KELAS.forEach(([kls]) => {
       for (let i = 0; i < 30; i++) {
         k++;
         items.push({

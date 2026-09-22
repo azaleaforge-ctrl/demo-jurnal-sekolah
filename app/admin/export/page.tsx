@@ -8,18 +8,37 @@ import { Card } from "@/src/components/ui/card";
 import { Button } from "@/src/components/ui/button";
 import { Skeleton, Spinner } from "@/src/components/ui/misc";
 import { cn } from "@/src/lib/utils";
-import { downloadRekap, filterRekap, type RekapTipe, type ExportDir } from "@/src/lib/export";
+import { downloadRekap, filterRekap, type RekapTipe, type ExportDir, type PeriodeMode } from "@/src/lib/export";
 import { getSharedFeed, getFeedFirestore, normalizeRemote, type FeedEntry } from "@/src/lib/feed";
 import { useDirectory, getSetting, mockSetting } from "@/src/lib/db";
 import { adminFeed } from "@/src/lib/api";
 import { todayID } from "@/src/lib/utils";
 
+function isoDay(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+// Default mingguan: Senin–Minggu berjalan (waktu lokal).
+function weekRange(base: Date): [string, string] {
+  const mon = new Date(base);
+  mon.setDate(base.getDate() - ((base.getDay() + 6) % 7));
+  const sun = new Date(mon);
+  sun.setDate(mon.getDate() + 6);
+  return [isoDay(mon), isoDay(sun)];
+}
+function monthRange(bulan: string): [string, string] {
+  const [y, m] = bulan.split("-").map(Number);
+  return [`${bulan}-01`, `${bulan}-${new Date(y, m, 0).getDate()}`];
+}
+
 export default function ExportPage() {
   const today = todayID();
   const dir = useDirectory();
   const [tipe, setTipe] = useState<RekapTipe>("guru");
-  const [dari, setDari] = useState(today.slice(0, 7) + "-01");
-  const [sampai, setSampai] = useState(today);
+  const [periode, setPeriode] = useState<PeriodeMode>("mingguan");
+  const [dari, setDari] = useState(() => weekRange(new Date())[0]);
+  const [sampai, setSampai] = useState(() => weekRange(new Date())[1]);
+  const [tanggal, setTanggal] = useState(today);
+  const [bulan, setBulan] = useState(today.slice(0, 7));
   const [classId, setClassId] = useState("");
   const [teacherId, setTeacherId] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -40,15 +59,15 @@ export default function ExportPage() {
       setFeed(getSharedFeed());
     })();
     getSetting()
-      .then((s) => { if (s) setSch({ school_name: s.school_name, academic_year: s.academic_year, semester: s.semester.toLowerCase() === "genap" ? "Genap" : "Ganjil" }); })
+      .then((s) => { if (s) setSch({ school_name: s.school_name, academic_year: s.academic_year, semester: s.semester.toLowerCase() === "genap" ? "Genap" : "Ganjil", principal_name: s.principal_name }); })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dir.loading]);
 
   const xdir: ExportDir = useMemo(() => ({
-    school: { name: sch.school_name, academicYear: sch.academic_year, semester: sch.semester.toLowerCase() === "genap" ? "Genap" : "Ganjil" },
+    school: { name: sch.school_name, academicYear: sch.academic_year, semester: sch.semester.toLowerCase() === "genap" ? "Genap" : "Ganjil", principalName: (sch as any).principal_name },
     students: dir.students.map((s) => ({ id: s.id, nisn: s.nisn, name: s.name, class_id: s.class_id })),
-    classes: dir.classes.map((c) => ({ id: c.id, name: c.name })),
+    classes: dir.classes.map((c) => ({ id: c.id, name: c.name, wali: (c as any).wali })),
     teachers: dir.users.filter((u) => u.role === "guru").map((t) => ({ id: t.id, name: t.name })),
   }), [dir, sch]);
 
@@ -72,7 +91,7 @@ export default function ExportPage() {
     const id = `${format}-${tipe}`;
     setBusy(id);
     try {
-      const mode = await downloadRekap({ tipe, format, dari, sampai, classId: classId || undefined, teacherId: teacherId || undefined, feed, dir: xdir });
+      const mode = await downloadRekap({ tipe, periode, format, dari, sampai, classId: classId || undefined, teacherId: teacherId || undefined, feed, dir: xdir });
       toast.success(mode === "remote" ? "File dari server diunduh." : "File rekap diunduh (dibuat lokal).");
     } catch (e: any) {
       toast.error(e.message || "Gagal membuat file.");
@@ -91,7 +110,7 @@ export default function ExportPage() {
       <AppShell role="admin" title="Export Center" hint="Coba server dulu, gagal → dibuat lokal dari data feed">
         <Card>
           <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-end">
-            <div className="min-w-0">
+            <div className="col-span-2 min-w-0 sm:col-span-1">
               <span className="mb-1.5 block text-sm font-semibold text-slate-700">Tipe rekap</span>
               <div className="flex gap-1 rounded-xl bg-slate-100 p-1 text-sm font-semibold">
                 {(["guru", "siswa"] as const).map((t) => (
@@ -101,8 +120,33 @@ export default function ExportPage() {
                 ))}
               </div>
             </div>
-            <label className="min-w-0 text-sm font-semibold text-slate-700">Dari <input type="date" value={dari} onChange={(e) => setDari(e.target.value)} className="mt-1.5 block w-full max-w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal" /></label>
-            <label className="min-w-0 text-sm font-semibold text-slate-700">Sampai <input type="date" value={sampai} onChange={(e) => setSampai(e.target.value)} className="mt-1.5 block w-full max-w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal" /></label>
+            <div className="col-span-2 min-w-0 sm:col-span-1">
+              <span className="mb-1.5 block text-sm font-semibold text-slate-700">Periode</span>
+              <div className="flex gap-1 rounded-xl bg-slate-100 p-1 text-sm font-semibold">
+                {(["harian", "mingguan", "bulanan"] as const).map((p) => (
+                  <button key={p} onClick={() => {
+                    setPeriode(p);
+                    if (p === "harian") { setDari(tanggal); setSampai(tanggal); }
+                    else if (p === "mingguan") { const [a, b] = weekRange(new Date()); setDari(a); setSampai(b); }
+                    else { const [a, b] = monthRange(bulan); setDari(a); setSampai(b); }
+                  }} className={cn("min-h-[44px] flex-1 rounded-lg px-3 py-1.5 capitalize sm:min-h-0 sm:flex-none sm:px-4", periode === p ? "bg-white shadow-soft" : "text-slate-500")}>
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {periode === "harian" && (
+              <label className="col-span-2 min-w-0 text-sm font-semibold text-slate-700 sm:col-span-1">Tanggal <input type="date" value={tanggal} onChange={(e) => { setTanggal(e.target.value); setDari(e.target.value); setSampai(e.target.value); }} className="mt-1.5 block w-full max-w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal" /></label>
+            )}
+            {periode === "mingguan" && (
+              <>
+                <label className="min-w-0 text-sm font-semibold text-slate-700">Dari <input type="date" value={dari} onChange={(e) => setDari(e.target.value)} className="mt-1.5 block w-full max-w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal" /></label>
+                <label className="min-w-0 text-sm font-semibold text-slate-700">Sampai <input type="date" value={sampai} onChange={(e) => setSampai(e.target.value)} className="mt-1.5 block w-full max-w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal" /></label>
+              </>
+            )}
+            {periode === "bulanan" && (
+              <label className="col-span-2 min-w-0 text-sm font-semibold text-slate-700 sm:col-span-1">Bulan <input type="month" value={bulan} onChange={(e) => { setBulan(e.target.value); const [a, b] = monthRange(e.target.value); setDari(a); setSampai(b); }} className="mt-1.5 block w-full max-w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal" /></label>
+            )}
             {tipe === "siswa" ? (
               <label className="min-w-0 text-sm font-semibold text-slate-700">Kelas (wajib)
                 <select value={classId} onChange={(e) => setClassId(e.target.value)} className="mt-1.5 block w-full max-w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal">

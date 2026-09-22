@@ -30,7 +30,8 @@
 ├── school_settings (Document Tunggal)
 │   ├── school_name: string
 │   ├── academic_year: string
-│   └── semester: string (ganjil / genap)
+│   ├── semester: string (ganjil / genap)
+│   └── principal_name: string (nama Kepala Sekolah, diubah via Pengaturan)
 │
 ├── users (Collection)
 │   ├── id: string
@@ -45,6 +46,7 @@
 ├── classes (Collection)
 │   ├── id: string
 │   ├── name: string (contoh: "X RPL 1")
+│   ├── wali: string (nama Wali Kelas, diisi saat tambah/edit kelas)
 │   ├── created_at: timestamp
 │   └── updated_at: timestamp
 │
@@ -188,6 +190,10 @@
   Total: PDF diletakkan di halaman paling bawah/terakhir.
 * `GET /rekap-excel?tipe=guru|siswa&...` - File `.xlsx` asli (header berwarna, border, total otomatis).
   Sheet 2 = TOTAL KESELURUHAN (H/S/I/A + %hadir). Aturan filter sama seperti PDF.
+  Mode periode (`periode=harian|mingguan|bulanan`): harian/mingguan = tabel detail jurnal; **bulanan = tabel ANGKA rekap**
+  (guru: Nama|H|I|S|Jumlah; siswa: NISN|Nama|H|S|I|A|%Hadir + TOTAL). Kolom "Jam Pelaksanaan" selalu gabungan
+  "mulai s/d selesai". Laporan siswa: meta "Wali Kelas: {wali}" + blok TTD Wali Kelas ({wali kelas}) & Kepala Sekolah
+  ({principal_name}); laporan guru: blok TTD Guru Mapel & Kepala Sekolah ({principal_name}).
 
 ---
 

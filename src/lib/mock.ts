@@ -4,13 +4,14 @@ export const school = {
   name: "SMK Nusantara Cerdas",
   academicYear: "2025/2026",
   semester: "Ganjil" as "Ganjil" | "Genap",
+  principalName: "Drs. Haryanto",
 };
 
 export const classes = [
-  { id: "k1", name: "X RPL 1" },
-  { id: "k2", name: "X RPL 2" },
-  { id: "k3", name: "XI TKJ 1" },
-  { id: "k4", name: "XII MM 1" },
+  { id: "k1", name: "X RPL 1", wali: "Rina Marlina" },
+  { id: "k2", name: "X RPL 2", wali: "Agus Wijaya" },
+  { id: "k3", name: "XI TKJ 1", wali: "Siti Rahma" },
+  { id: "k4", name: "XII MM 1", wali: "Dewi Lestari" },
 ];
 
 export const subjects = [

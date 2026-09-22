@@ -92,7 +92,7 @@ export async function batchAdd(name: string, items: any[]): Promise<number> {
   return n;
 }
 
-export type Setting = { school_name: string; academic_year: string; semester: string };
+export type Setting = { school_name: string; academic_year: string; semester: string; principal_name?: string };
 
 export async function getSetting(): Promise<Setting | null> {
   const s = await getDoc(doc(needDb(), "school_settings", "main"));
@@ -240,5 +240,5 @@ export function useDirectory(): Directory {
 }
 
 export function mockSetting() {
-  return { school_name: mockSchool.name, academic_year: mockSchool.academicYear, semester: mockSchool.semester.toLowerCase() };
+  return { school_name: mockSchool.name, academic_year: mockSchool.academicYear, semester: mockSchool.semester.toLowerCase(), principal_name: (mockSchool as any).principalName || "Drs. Haryanto" };
 }

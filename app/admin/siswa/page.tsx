@@ -20,6 +20,7 @@ export default function SiswaPage() {
   const kelas = useCollection<Doc>("classes", { order: ["name", "asc"], fallback: fbClasses as Doc[] });
   const [kelasOpen, setKelasOpen] = useState(false);
   const [kelasNama, setKelasNama] = useState("");
+  const [kelasWali, setKelasWali] = useState("");
   const [kelasBusy, setKelasBusy] = useState(false);
 
   function mapRow(r: Record<string, any>): ImportResult<Draft> {
@@ -60,9 +61,10 @@ export default function SiswaPage() {
     if (!kelasNama.trim()) return toast.error("Isi nama kelas dulu.");
     setKelasBusy(true);
     try {
-      await kelas.persist.create({ name: kelasNama.trim() });
+      await kelas.persist.create({ name: kelasNama.trim(), wali: kelasWali.trim() || undefined });
       await kelas.refresh();
       setKelasNama("");
+      setKelasWali("");
       setKelasOpen(false);
       toast.success("Kelas ditambahkan.");
     } catch {
@@ -112,6 +114,9 @@ export default function SiswaPage() {
         />
         <Modal open={kelasOpen} onClose={() => setKelasOpen(false)} title="Tambah Kelas">
           <Input label="Nama kelas" placeholder='Mis. "X RPL 3"' value={kelasNama} onChange={(e) => setKelasNama(e.target.value)} />
+          <div className="mt-3">
+            <Input label="Wali kelas" placeholder="Nama wali kelas" value={kelasWali} onChange={(e) => setKelasWali(e.target.value)} />
+          </div>
           <div className="mt-5 flex gap-2">
             <Button variant="ghost" className="flex-1" disabled={kelasBusy} onClick={() => setKelasOpen(false)}>Batal</Button>
             <Button className="flex-1" disabled={kelasBusy} onClick={quickKelas}>{kelasBusy ? "Menyimpan…" : "Simpan"}</Button>
