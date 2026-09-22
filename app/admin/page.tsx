@@ -55,9 +55,12 @@ export default function AdminHome() {
         setSummary(summaryFromRemote(s, remote, bulan, fdir));
         return;
       } catch {}
-      // 2) Firestore langsung (§5) — agregasi client aturan §4.6
+      // 2) Firestore langsung (§5) — agregasi client aturan §4.6, lingkup bulan + limit
       try {
-        const fs = await getFeedFirestore(200);
+        const fs = await getFeedFirestore(100, {
+          since: `${bulan}-01`,
+          dir: { classes: dir.classes, subjects: dir.subjects, users: dir.users, materials: dir.materials, schedules: dir.schedules },
+        });
         if (!on) return;
         setFeed(fs);
         setSummary(summarizeFeed(fs, tanggal, bulan, fdir));

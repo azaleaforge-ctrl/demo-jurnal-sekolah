@@ -91,15 +91,27 @@ export function normalizeRemote(r: any): FeedEntry {
 
 // Feed langsung dari Firestore: journals + agregasi student_attendances (aturan §4.6).
 // Firestore tanpa JOIN: ID dipetakan ke nama via direktori di memori.
-export async function getFeedFirestore(limitN = 100): Promise<FeedEntry[]> {
-  const [js, cls, sub, usr, mat, sch] = await Promise.all([
-    listDocs("journals", { order: ["created_at", "desc"], limitN }),
-    listDocs("classes"),
-    listDocs("subjects"),
-    listDocs("users"),
-    listDocs("materials"),
-    listDocs("schedules"),
+// Batas baca: since (default awal bulan berjalan, where date>= — tanpa index komposit)
+// + sort client + slice limitN. Attendances hanya untuk journal tampil (chunk `in`).
+export type FeedDir = { classes: Doc[]; subjects: Doc[]; users: Doc[]; materials: Doc[]; schedules: Doc[] };
+
+export async function getFeedFirestore(limitN = 60, opts?: { since?: string; dir?: FeedDir }): Promise<FeedEntry[]> {
+  const d = new Date();
+  const since = opts?.since ?? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+  const [all, lists] = await Promise.all([
+    listDocs("journals", { wheres: [["date", ">=", since]] }),
+    (async (): Promise<FeedDir> => opts?.dir ?? {
+      classes: await listDocs("classes"),
+      subjects: await listDocs("subjects"),
+      users: await listDocs("users"),
+      materials: await listDocs("materials"),
+      schedules: await listDocs("schedules"),
+    })(),
   ]);
+  const { classes: cls, subjects: sub, users: usr, materials: mat, schedules: sch } = lists;
+  const js = all
+    .sort((a, b) => String(b.created_at || b.date || "").localeCompare(String(a.created_at || a.date || "")))
+    .slice(0, limitN);
   const clsName = (id?: string) => cls.find((c) => c.id === id)?.name || "-";
   const subName = (id?: string) => sub.find((s) => s.id === id)?.name || "-";
   const tchName = (id?: string) => usr.find((u) => u.id === id)?.name || "-";

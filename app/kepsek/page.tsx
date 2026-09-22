@@ -46,7 +46,10 @@ export default function KepsekPage() {
         return;
       } catch {}
       try {
-        const fs = await getFeedFirestore(200);
+        const fs = await getFeedFirestore(100, {
+          since: `${bulan}-01`,
+          dir: { classes: dir.classes, subjects: dir.subjects, users: dir.users, materials: dir.materials, schedules: dir.schedules },
+        });
         if (!on) return;
         setFeed(fs);
         setSummary(summarizeFeed(fs, today, bulan, fdir));

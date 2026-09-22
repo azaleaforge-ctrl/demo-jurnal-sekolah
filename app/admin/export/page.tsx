@@ -42,6 +42,7 @@ export default function ExportPage() {
   const [classId, setClassId] = useState("");
   const [teacherId, setTeacherId] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const [prog, setProg] = useState("");
   const [feed, setFeed] = useState<FeedEntry[]>([]);
   const [sch, setSch] = useState(mockSetting());
 
@@ -53,7 +54,10 @@ export default function ExportPage() {
         return;
       } catch {}
       try {
-        setFeed(await getFeedFirestore(300));
+        setFeed(await getFeedFirestore(300, {
+          since: dari || undefined,
+          dir: { classes: dir.classes, subjects: dir.subjects, users: dir.users, materials: dir.materials, schedules: dir.schedules },
+        }));
         return;
       } catch {}
       setFeed(getSharedFeed());
@@ -90,13 +94,15 @@ export default function ExportPage() {
     if (tipe === "siswa" && !classId) return toast.error("Pilih kelas terlebih dahulu.");
     const id = `${format}-${tipe}`;
     setBusy(id);
+    setProg("");
     try {
-      const mode = await downloadRekap({ tipe, periode, format, dari, sampai, classId: classId || undefined, teacherId: teacherId || undefined, feed, dir: xdir });
+      const mode = await downloadRekap({ tipe, periode, format, dari, sampai, classId: classId || undefined, teacherId: teacherId || undefined, feed, dir: xdir, onProgress: (d, t) => setProg(`${d}/${t}`) });
       toast.success(mode === "remote" ? "File dari server diunduh." : "File rekap diunduh (dibuat lokal).");
     } catch (e: any) {
       toast.error(e.message || "Gagal membuat file.");
     } finally {
       setBusy(null);
+      setProg("");
     }
   }
 
@@ -201,7 +207,7 @@ export default function ExportPage() {
                           {busy ? <Spinner /> : <Download size={15} />} Unduh
                         </Button>
                       )}
-                      {busy === id && <Button className="mt-3" disabled><Spinner /> Memproses…</Button>}
+                      {busy === id && <Button className="mt-3" disabled><Spinner /> Memproses…{prog ? ` ${prog}` : ""}</Button>}
                     </div>
                   </div>
                 </Card>

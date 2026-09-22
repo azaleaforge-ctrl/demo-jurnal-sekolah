@@ -31,10 +31,22 @@ export default function RiwayatPage() {
   const [zoom, setZoom] = useState<{ src: string; label: string } | null>(null);
   const [bulan, setBulan] = useState("");
   const [expBusy, setExpBusy] = useState(false);
+  const [expProg, setExpProg] = useState("");
   const [sch, setSch] = useState(mockSetting());
   const [editing, setEditing] = useState<Row | null>(null);
   const [att, setAtt] = useState<Record<string, AttStatus>>({});
   const [savingAtt, setSavingAtt] = useState(false);
+  // Lingkup tampil default bulan berjalan + "Muat lagi" mundur per bulan.
+  const [since, setSince] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+  });
+  const visible = useMemo(() => rows.filter((r) => !r.date || r.date >= since), [rows, since]);
+  function muatLama() {
+    const [y, m] = since.split("-").map(Number);
+    const d = new Date(y, m - 2, 1);
+    setSince(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`);
+  }
 
   const xdir: ExportDir = useMemo(() => ({
     school: { name: sch.school_name, academicYear: sch.academic_year, semester: sch.semester.toLowerCase() === "genap" ? "Genap" : "Ganjil", principalName: (sch as any).principal_name },
@@ -107,18 +119,21 @@ export default function RiwayatPage() {
     if (!user?.id) return toast.error("Masuk terlebih dahulu.");
     if (expBusy) return;
     setExpBusy(true);
+    setExpProg("");
     try {
       const ymd = (b: string) => { const [y, m] = b.split("-").map(Number); return new Date(y, m, 0).getDate(); };
       const mode = await downloadRekap({
         tipe: "guru", format: "pdf",
         dari: bulan ? `${bulan}-01` : "", sampai: bulan ? `${bulan}-${ymd(bulan)}` : "",
         teacherId: user.id, feed: rows as unknown as FeedEntry[], dir: xdir,
+        onProgress: (d, t) => setExpProg(`${d}/${t}`),
       });
       toast.success(mode === "remote" ? "File dari server diunduh." : "File rekap diunduh (dibuat lokal).");
     } catch (e: any) {
       toast.error(e.message || "Gagal membuat file.");
     } finally {
       setExpBusy(false);
+      setExpProg("");
     }
   }
 
@@ -199,11 +214,11 @@ export default function RiwayatPage() {
             <input type="month" value={bulan} onChange={(e) => setBulan(e.target.value)} className="mt-1.5 block w-full max-w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal" />
           </label>
           <Button variant="outline" className="w-full sm:w-auto" disabled={expBusy} onClick={exportPdf}>
-            {expBusy ? <Spinner /> : <Download size={15} />} {expBusy ? "Memproses…" : "Export PDF"}
+            {expBusy ? <Spinner /> : <Download size={15} />} {expBusy ? `Memproses…${expProg ? ` ${expProg}` : ""}` : "Export PDF"}
           </Button>
         </div>
         <div className="space-y-3">
-          {rows.map((j) => (
+          {visible.map((j) => (
             <Card key={j.id} className="overflow-hidden">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="font-display font-bold">{j.subject} · {j.class}</h2>
@@ -253,6 +268,11 @@ export default function RiwayatPage() {
             </Card>
           ))}
         </div>
+        {visible.length < rows.length && (
+          <Button variant="outline" className="mt-3 w-full" onClick={muatLama}>
+            Muat jurnal lebih lama ({rows.length - visible.length} disembunyikan)
+          </Button>
+        )}
         {zoom && <Lightbox src={zoom.src} label={zoom.label} onClose={() => setZoom(null)} />}
         <Modal open={!!editing} onClose={() => setEditing(null)} title={`Ubah absensi — ${editing?.subject} · ${editing?.class}`}>
           <p className="text-sm text-slate-500">{editing?.date} · hanya absensi siswa yang bisa diubah.</p>

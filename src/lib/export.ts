@@ -28,6 +28,7 @@ export type RekapOpts = {
   teacherId?: string;
   feed: FeedEntry[];
   dir?: ExportDir;
+  onProgress?: (done: number, total: number) => void; // preload gambar x/y
 };
 
 const BULAN = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
@@ -133,12 +134,13 @@ const fit = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + "…" 
 
 type Media = { dataUrl: string; ext: "png" | "jpeg"; w: number; h: number } | null;
 
-async function fetchMedia(src?: string): Promise<Media> {
+async function fetchMedia(src?: string, timeoutMs = 8000): Promise<Media> {
   try {
     if (!src) return null;
     let dataUrl = src;
     if (!src.startsWith("data:")) {
-      const res = await fetch(src);
+      // Timeout per gambar + skip-cepat bila gagal (tanpa antre menumpuk).
+      const res = await fetch(src, { signal: AbortSignal.timeout(timeoutMs) });
       if (!res.ok) return null;
       const blob = await res.blob();
       if (!blob.type.startsWith("image/")) return null;
@@ -328,8 +330,8 @@ export async function buildRekapExcel(o: RekapOpts & { rows: FeedEntry[] }): Pro
       ws.views = [{ state: "frozen", ySplit: 7 }];
       ws.autoFilter = { from: "A7", to: "E7" };
     } else {
-      headerRow(ws, 7, ["No", "Hari & Tanggal", "Jam Pelaksanaan", "Kelas", "Nama Guru", "Materi Pembelajaran", "Catatan", "Foto Dokumentasi", "Tanda Tangan Guru"]);
-      const media = await Promise.all(o.rows.map(async (j) => ({ foto: await fetchMedia(j.photo), ttd: await fetchMedia(j.signature) })));
+    headerRow(ws, 7, ["No", "Hari & Tanggal", "Jam Pelaksanaan", "Kelas", "Nama Guru", "Materi Pembelajaran", "Catatan", "Foto Dokumentasi", "Tanda Tangan Guru"]);
+    const media = await buildGuruMedia(o.rows, { onProgress: o.onProgress });
       o.rows.forEach((j, i) => {
         const r = 8 + i;
         bodyRow(ws, r, [
@@ -709,9 +711,37 @@ export function buildRekapPdf(o: RekapOpts & { rows: FeedEntry[] }): Blob {
   return doc.output("blob");
 }
 
+// Pool konkurensi terbatas: N tugas jalan bareng, sisanya antre. onDone lapor tiap selesai.
+export async function mapPool<T, R>(items: T[], size: number, fn: (item: T, index: number) => Promise<R>, onDone?: (done: number, total: number) => void): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let i = 0;
+  let done = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(size, items.length || 1)) }, async () => {
+    while (i < items.length) {
+      const idx = i++;
+      out[idx] = await fn(items[idx], idx);
+      done++;
+      onDone?.(done, items.length);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+
 // Guru butuh preload media (async) → dipisah agar buildRekapPdf tetap sinkron.
-async function buildGuruMedia(rows: FeedEntry[]) {
-  return Promise.all(rows.map(async (j) => ({ foto: await fetchMedia(j.photo), ttd: await fetchMedia(j.signature) })));
+async function buildGuruMedia(
+  rows: FeedEntry[],
+  o?: { pool?: number; timeoutMs?: number; onProgress?: (done: number, total: number) => void },
+) {
+  const tasks = rows.flatMap((j, i) => [
+    { i, k: "foto" as const, src: j.photo },
+    { i, k: "ttd" as const, src: j.signature },
+  ]);
+  const out = rows.map(() => ({ foto: null as Media, ttd: null as Media }));
+  await mapPool(tasks, o?.pool ?? 5, async (t) => {
+    out[t.i][t.k] = await fetchMedia(t.src, o?.timeoutMs ?? 8000);
+  }, o?.onProgress);
+  return out;
 }
 
 // ---------- Unduhan ----------
@@ -810,7 +840,7 @@ export async function buildRekapPdfAsync(o: RekapOpts & { rows: FeedEntry[] }): 
     footers(doc);
     return doc.output("blob");
   }
-  const media = await buildGuruMedia(o.rows);
+  const media = await buildGuruMedia(o.rows, { onProgress: o.onProgress });
   autoTable(doc, {
     startY: y + 4,
     margin: TABLE_MARGIN,

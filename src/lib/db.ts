@@ -27,6 +27,11 @@ function needStorage() {
 const stripId = (o: any) => { const { id, ...rest } = o || {}; return rest; };
 const stamp = (data: any) => { const t = nowID(); return { ...data, created_at: data.created_at ?? t, updated_at: t }; };
 
+// Cache direktori sesi: dibaca sekali, dipakai ulang antar halaman; hangus tiap tulis.
+type DirData = { users: Doc[]; classes: Doc[]; subjects: Doc[]; students: Doc[]; schedules: Doc[]; materials: Doc[] };
+let dirCache: DirData | null = null;
+let dirInflight: Promise<DirData> | null = null;
+
 // ---------- Repo typed per koleksi §2 ----------
 
 export async function listDocs(name: string, opts?: { wheres?: Wheres; order?: [string, "asc" | "desc"]; limitN?: number }): Promise<Doc[]> {
@@ -44,21 +49,27 @@ export async function countDocs(name: string): Promise<number> {
   return s.data().count;
 }
 
+function bustDir() { dirCache = null; }
+
 export async function addDocTo(name: string, data: any): Promise<string> {
   const r = await addDoc(collection(needDb(), name), stamp(data));
+  bustDir();
   return r.id;
 }
 
 export async function setDocTo(name: string, id: string, data: any): Promise<void> {
   await setDoc(doc(needDb(), name, id), stamp(data), { merge: true });
+  bustDir();
 }
 
 export async function updateDocById(name: string, id: string, data: any): Promise<void> {
   await updateDoc(doc(needDb(), name, id), { ...stripId(data), updated_at: nowID() });
+  bustDir();
 }
 
 export async function removeDoc(name: string, id: string): Promise<void> {
   await deleteDoc(doc(needDb(), name, id));
+  bustDir();
 }
 
 // Tulis balik absensi per jurnal: hapus batch lama + tulis batch baru (kompensasi §4.6).
@@ -89,7 +100,25 @@ export async function batchAdd(name: string, items: any[]): Promise<number> {
     await b.commit();
     n += Math.min(500, items.length - i);
   }
+  bustDir();
   return n;
+}
+
+// Satu commit untuk N operasi campur (set id pradefinisi / set auto-id / delete).
+// Dipakai simpan jurnal: 1 journal + ±30 attendances = 1 roundtrip (atomik).
+export type BatchOp = { col: string; id?: string; data?: any; del?: boolean };
+export async function commitBatch(ops: BatchOp[]): Promise<void> {
+  const d = needDb();
+  for (let i = 0; i < ops.length; i += 500) {
+    const b = writeBatch(d);
+    ops.slice(i, i + 500).forEach((op) => {
+      const r = op.id ? doc(d, op.col, op.id) : doc(collection(d, op.col));
+      if (op.del) b.delete(r);
+      else b.set(r, stamp(op.data ?? {}));
+    });
+    await b.commit();
+  }
+  bustDir();
 }
 
 export type Setting = { school_name: string; academic_year: string; semester: string; principal_name?: string };
@@ -211,30 +240,48 @@ export type Directory = {
 };
 
 // Satu hook direktori untuk dropdown + agregasi (fallback mock per koleksi).
+// Cache sesi: 6 koleksi dibaca sekali, dipakai ulang antar halaman tanpa refetch.
+async function loadDirectory(): Promise<DirData> {
+  if (dirCache) return dirCache;
+  if (!dirInflight) {
+    dirInflight = (async () => {
+      const [users, classes, subjects, students, schedules, materials] = await Promise.all([
+        listDocs("users"), listDocs("classes"), listDocs("subjects"),
+        listDocs("students"), listDocs("schedules"), listDocs("materials"),
+      ]);
+      const pick = (rows: Doc[], fb: Doc[]) => (rows.length ? rows : fb);
+      dirCache = {
+        users: pick(users, mockUsers as Doc[]), classes: pick(classes, mockClasses as Doc[]),
+        subjects: pick(subjects, mockSubjects as Doc[]), students: pick(students, mockStudents as Doc[]),
+        schedules: pick(schedules, mockSchedules as Doc[]), materials: pick(materials, mockMaterials as Doc[]),
+      };
+      return dirCache;
+    })().catch((e) => { dirInflight = null; throw e; });
+  }
+  return dirInflight;
+}
+
 export function useDirectory(): Directory {
   const [dir, setDir] = useState({ users: mockUsers as Doc[], classes: mockClasses as Doc[], subjects: mockSubjects as Doc[], students: mockStudents as Doc[], schedules: mockSchedules as Doc[], materials: mockMaterials as Doc[] });
-  const [loading, setLoading] = useState(true);
-  const [remote, setRemote] = useState(false);
+  const [loading, setLoading] = useState(!dirCache);
+  const [remote, setRemote] = useState(!!dirCache);
   useEffect(() => {
+    let on = true;
+    if (dirCache) { setDir(dirCache); setRemote(true); setLoading(false); return; }
     (async () => {
       try {
-        const [users, classes, subjects, students, schedules, materials] = await Promise.all([
-          listDocs("users"), listDocs("classes"), listDocs("subjects"),
-          listDocs("students"), listDocs("schedules"), listDocs("materials"),
-        ]);
-        const pick = (rows: Doc[], fb: Doc[]) => (rows.length ? rows : fb);
-        setDir({
-          users: pick(users, mockUsers as Doc[]), classes: pick(classes, mockClasses as Doc[]),
-          subjects: pick(subjects, mockSubjects as Doc[]), students: pick(students, mockStudents as Doc[]),
-          schedules: pick(schedules, mockSchedules as Doc[]), materials: pick(materials, mockMaterials as Doc[]),
-        });
+        const d = await loadDirectory();
+        if (!on) return;
+        setDir(d);
         setRemote(true);
       } catch {
+        if (!on) return;
         toast.info("Mode demo — memakai data lokal.");
       } finally {
-        setLoading(false);
+        if (on) setLoading(false);
       }
     })();
+    return () => { on = false; };
   }, []);
   return { ...dir, loading, remote };
 }

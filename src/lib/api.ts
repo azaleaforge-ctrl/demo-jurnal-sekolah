@@ -35,15 +35,16 @@ export const endpoints = {
 
 export async function api<T = any>(
   path: string,
-  opts: RequestInit = {},
+  opts: RequestInit & { timeoutMs?: number } = {},
   fallback?: T
 ): Promise<T> {
-  const isJson = !!opts.body && typeof opts.body === "string";
+  const { timeoutMs, ...rest } = opts;
+  const isJson = !!rest.body && typeof rest.body === "string";
   try {
     const res = await fetch(`${BASE}${path}`, {
-      ...opts,
-      headers: { ...authHeaders(isJson), ...((opts.headers as Record<string, string>) || {}) },
-      signal: AbortSignal.timeout(8000),
+      ...rest,
+      headers: { ...authHeaders(isJson), ...((rest.headers as Record<string, string>) || {}) },
+      signal: AbortSignal.timeout(timeoutMs ?? 8000),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const ct = res.headers.get("content-type") || "";
@@ -91,9 +92,10 @@ export const apiClient = {
   postForm,
 };
 
-// POST /teacher/journals (multipart, kontrak §3C): gagal → lempar agar caller fallback mock
-export async function postJournal(form: FormData): Promise<void> {
-  await postForm(endpoints.journals, form);
+// POST /teacher/journals (multipart, kontrak §3C): gagal → lempar agar caller fallback.
+// timeoutMs singkat (default 2,5 dtk) agar API mati langsung skip tanpa tunggu lama.
+export async function postJournal(form: FormData, timeoutMs = 2500): Promise<void> {
+  await api(endpoints.journals, { method: "POST", body: form, timeoutMs });
 }
 
 export type AdminStats = {

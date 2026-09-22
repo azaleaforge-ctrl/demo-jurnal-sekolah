@@ -15,7 +15,7 @@ import { postJournal } from "@/src/lib/api";
 import { normalizePhoto, normalizeSignature } from "@/src/lib/media";
 import { appendFeed } from "@/src/lib/feed";
 import { Lightbox } from "@/src/components/lightbox";
-import { useDirectory, getSetting, mockSetting, setDocTo, batchAdd, removeDoc, uploadBlob, uploadFile, uploadPhotoJournal, uploadSignature, uploadSickLetter } from "@/src/lib/db";
+import { useDirectory, getSetting, mockSetting, commitBatch, uploadBlob, uploadFile, uploadPhotoJournal, uploadSignature, uploadSickLetter } from "@/src/lib/db";
 import { mulaiOptions, selesaiOptions, compareSlots, rangeLabel } from "@/src/lib/slots";
 import { todayID } from "@/src/lib/utils";
 
@@ -93,6 +93,7 @@ function Wizard() {
   const [compressing, setCompressing] = useState(false);
   const [absensi, setAbsensi] = useState<Record<string, Status>>({});
   const [saving, setSaving] = useState(false);
+  const [saveStage, setSaveStage] = useState("");
   const [shake, setShake] = useState(0);
   const [sigPreview, setSigPreview] = useState("");
   const [sigLocked, setSigLocked] = useState("");
@@ -141,7 +142,7 @@ function Wizard() {
     setCompressing(true);
     try {
       const imageCompression = (await import("browser-image-compression")).default;
-      const out = await imageCompression(f, { maxSizeMB: 0.4, maxWidthOrHeight: 1280, useWebWorker: true });
+      const out = await imageCompression(f, { maxSizeMB: 0.3, maxWidthOrHeight: 1024, useWebWorker: true });
       const raw = await imageCompression.getDataUrlFromFile(out);
       setPhoto(await normalizePhoto(raw));
       toast.success("Foto ditambahkan & dikompresi.");
@@ -213,6 +214,7 @@ function Wizard() {
     const signature_data = sigLocked;
 
     setSaving(true);
+    setSaveStage("Menyiapkan…");
     try {
       const fd = new FormData();
       fd.append("class_id", classId);
@@ -235,57 +237,63 @@ function Wizard() {
       const attList = siswa.map((s) => ({ student_id: s.id, status: (absensi[s.id] || "Hadir").toLowerCase() }));
       fd.append("attendances", JSON.stringify(attList));
 
-      // Tulis Firestore (§5): upload media → journals → batch attendances.
-      // Gagal upload → fallback dataURL + toast; batch gagal → hapus jurnal (kompensasi §4.6).
+      // Tulis Firestore (§5): upload media PARALEL → 1 writeBatch (journal + attendances, atomik).
+      // Tiap upload bawa fallback sendiri (UploadThing → Firebase → dataURL + toast).
       async function persistJournal(): Promise<{ jid: string; photo_url: string; signature_url: string }> {
         const date = todayID();
         const jid = `jr${Date.now()}`;
-        // FOTO → UploadThing (utfs.io) dulu, gagal → Firebase, terakhir dataURL.
-        // TTD + surat TETAP Firebase Storage (tak berubah).
-        const photoBlob = await (await fetch(photo)).blob();
-        let photo_url = photo;
-        try {
-          photo_url = await uploadPhotoJournal(photoBlob);
-        } catch {
+        setSaveStage("Mengunggah foto…");
+        const [photoBlob, sigBlob] = await Promise.all([
+          (await fetch(photo)).blob(),
+          (await fetch(signature_data)).blob(),
+        ]);
+        const upPhoto = (async () => {
           try {
-            photo_url = await uploadBlob(`jurnal/${date}/${jid}.jpg`, photoBlob, "image/jpeg");
-          } catch { toast.info("Upload foto gagal — arsip memakai salinan lokal."); }
-        }
-        let signature_url = signature_data;
-        try {
-          signature_url = await uploadSignature(signature_data);
-        } catch {
-          try {
-            signature_url = await uploadBlob(`ttd/${date}/${jid}.png`, await (await fetch(signature_data)).blob(), "image/png");
-          } catch { toast.info("Upload TTD gagal — arsip memakai salinan lokal."); }
-        }
-        let sick_letter_url: string | null = null;
-        if (teacherStatus === "sakit" && sickFile) {
-          const ext = (sickFile.name.split(".").pop() || "pdf").toLowerCase();
-          try {
-            sick_letter_url = await uploadSickLetter(sickFile);
+            return await uploadPhotoJournal(photoBlob);
           } catch {
             try {
-              sick_letter_url = await uploadFile(`surat-sakit/${user?.id || "guru"}_${date}_${Date.now()}.${ext}`, sickFile);
-            } catch { toast.info("Upload surat gagal — nama file dicatat di arsip."); }
+              return await uploadBlob(`jurnal/${date}/${jid}.jpg`, photoBlob, "image/jpeg");
+            } catch { toast.info("Upload foto gagal — arsip memakai salinan lokal."); return photo; }
           }
-        }
-        await setDocTo("journals", jid, {
-          teacher_id: user?.id || "", class_id: classId, subject_id: subjectId, schedule_id: mulaiId,
-          schedule_end_id: needEnd && endId ? endId : null,
-          material_id: (!useManual && materialId) || null,
-          custom_material: (useManual || !materialId) ? material : null,
-          notes, photo_url, signature_url, teacher_status: teacherStatus,
-          leave_note: teacherStatus === "izin" ? leaveNote.trim() : null,
-          sick_letter_url, sick_letter_note: teacherStatus === "sakit" && sickNote.trim() ? sickNote.trim() : null,
-          date, semester: setting.semester.toLowerCase(),
-        });
-        try {
-          await batchAdd("student_attendances", attList.map((a) => ({ journal_id: jid, student_id: a.student_id, status: a.status })));
-        } catch {
-          try { await removeDoc("journals", jid); } catch {}
-          throw new Error("Gagal menyimpan absensi.");
-        }
+        })();
+        const upSig = (async () => {
+          try {
+            return await uploadSignature(signature_data);
+          } catch {
+            try {
+              return await uploadBlob(`ttd/${date}/${jid}.png`, sigBlob, "image/png");
+            } catch { toast.info("Upload TTD gagal — arsip memakai salinan lokal."); return signature_data; }
+          }
+        })();
+        const upSick = (async (): Promise<string | null> => {
+          if (!(teacherStatus === "sakit" && sickFile)) return null;
+          const ext = (sickFile.name.split(".").pop() || "pdf").toLowerCase();
+          try {
+            return await uploadSickLetter(sickFile);
+          } catch {
+            try {
+              return await uploadFile(`surat-sakit/${user?.id || "guru"}_${date}_${Date.now()}.${ext}`, sickFile);
+            } catch { toast.info("Upload surat gagal — nama file dicatat di arsip."); return null; }
+          }
+        })();
+        const [photo_url, signature_url, sick_letter_url] = await Promise.all([upPhoto, upSig, upSick]);
+        setSaveStage("Menyimpan…");
+        await commitBatch([
+          {
+            col: "journals", id: jid,
+            data: {
+              teacher_id: user?.id || "", class_id: classId, subject_id: subjectId, schedule_id: mulaiId,
+              schedule_end_id: needEnd && endId ? endId : null,
+              material_id: (!useManual && materialId) || null,
+              custom_material: (useManual || !materialId) ? material : null,
+              notes, photo_url, signature_url, teacher_status: teacherStatus,
+              leave_note: teacherStatus === "izin" ? leaveNote.trim() : null,
+              sick_letter_url, sick_letter_note: teacherStatus === "sakit" && sickNote.trim() ? sickNote.trim() : null,
+              date, semester: setting.semester.toLowerCase(),
+            },
+          },
+          ...attList.map((a) => ({ col: "student_attendances", data: { journal_id: jid, student_id: a.student_id, status: a.status } })),
+        ]);
         return { jid, photo_url, signature_url };
       }
 
@@ -333,6 +341,7 @@ function Wizard() {
       r.push("/guru/riwayat");
     } finally {
       setSaving(false);
+      setSaveStage("");
     }
   }
 
@@ -519,7 +528,7 @@ function Wizard() {
           <Button variant="outline" className="flex-1" disabled={step === 0} onClick={() => go(step - 1)}><ChevronLeft size={16} /> Kembali</Button>
           {step < 3
             ? <Button className="flex-[2]" onClick={next}>Lanjut <ChevronRight size={16} /></Button>
-            : <Button className="flex-[2]" disabled={saving} onClick={save}>{saving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} {saving ? "Menyimpan…" : "Simpan Jurnal"}</Button>}
+            : <Button className="flex-[2]" disabled={saving} onClick={save}>{saving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} {saving ? (saveStage || "Menyimpan…") : "Simpan Jurnal"}</Button>}
         </div>
       </div>
 
