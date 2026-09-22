@@ -88,13 +88,13 @@ export default function AdminHome() {
     <Guard roles={["admin"]}>
       <AppShell role="admin" title="Dashboard Admin" hint="Semua jurnal guru mengalir ke sini otomatis">
         <div className="flex flex-wrap gap-2 rounded-2xl border border-slate-100 bg-white p-3 shadow-soft">
-          <label className="text-xs font-semibold text-slate-500">Bulan <input type="month" value={bulan} onChange={(e) => e.target.value && setBulan(e.target.value)} className="ml-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-ink" /></label>
-          <label className="text-xs font-semibold text-slate-500">Tanggal <input type="date" value={tanggal} onChange={(e) => e.target.value && setTanggal(e.target.value)} className="ml-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-ink" /></label>
-          <select value={fClass} onChange={(e) => setFClass(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
+          <label className="min-w-0 text-xs font-semibold text-slate-500">Bulan <input type="month" value={bulan} onChange={(e) => e.target.value && setBulan(e.target.value)} className="ml-1 max-w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-ink" /></label>
+          <label className="min-w-0 text-xs font-semibold text-slate-500">Tanggal <input type="date" value={tanggal} onChange={(e) => e.target.value && setTanggal(e.target.value)} className="ml-1 max-w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-ink" /></label>
+          <select value={fClass} onChange={(e) => setFClass(e.target.value)} className="max-w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
             <option value="">Semua kelas</option>
             {dir.classes.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
           </select>
-          <select value={fTeacher} onChange={(e) => setFTeacher(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
+          <select value={fTeacher} onChange={(e) => setFTeacher(e.target.value)} className="max-w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
             <option value="">Semua guru</option>
             {guruList.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
           </select>

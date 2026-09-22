@@ -82,27 +82,27 @@ export default function ExportPage() {
     <Guard roles={["admin"]}>
       <AppShell role="admin" title="Export Center" hint="Coba server dulu, gagal → dibuat lokal dari data feed">
         <Card>
-          <div className="flex flex-wrap items-end gap-2">
-            <div>
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-end">
+            <div className="min-w-0">
               <span className="mb-1.5 block text-sm font-semibold text-slate-700">Tipe rekap</span>
               <div className="flex gap-1 rounded-xl bg-slate-100 p-1 text-sm font-semibold">
                 {(["guru", "siswa"] as const).map((t) => (
-                  <button key={t} onClick={() => setTipe(t)} className={cn("rounded-lg px-4 py-1.5 capitalize", tipe === t ? "bg-white shadow-soft" : "text-slate-500")}>
+                  <button key={t} onClick={() => setTipe(t)} className={cn("min-h-[44px] flex-1 rounded-lg px-3 py-1.5 capitalize sm:min-h-0 sm:flex-none sm:px-4", tipe === t ? "bg-white shadow-soft" : "text-slate-500")}>
                     {t === "guru" ? "Guru" : "Siswa"}
                   </button>
                 ))}
               </div>
             </div>
-            <label className="text-sm font-semibold text-slate-700">Dari <input type="date" value={dari} onChange={(e) => setDari(e.target.value)} className="mt-1.5 block rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal" /></label>
-            <label className="text-sm font-semibold text-slate-700">Sampai <input type="date" value={sampai} onChange={(e) => setSampai(e.target.value)} className="mt-1.5 block rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal" /></label>
-            <label className="text-sm font-semibold text-slate-700">Kelas
-              <select value={classId} onChange={(e) => setClassId(e.target.value)} className="mt-1.5 block rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal">
+            <label className="min-w-0 text-sm font-semibold text-slate-700">Dari <input type="date" value={dari} onChange={(e) => setDari(e.target.value)} className="mt-1.5 block w-full max-w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal" /></label>
+            <label className="min-w-0 text-sm font-semibold text-slate-700">Sampai <input type="date" value={sampai} onChange={(e) => setSampai(e.target.value)} className="mt-1.5 block w-full max-w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal" /></label>
+            <label className="min-w-0 text-sm font-semibold text-slate-700">Kelas
+              <select value={classId} onChange={(e) => setClassId(e.target.value)} className="mt-1.5 block w-full max-w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal">
                 <option value="">Semua</option>
                 {xdir.classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </label>
-            <label className="text-sm font-semibold text-slate-700">Guru
-              <select value={teacherId} onChange={(e) => setTeacherId(e.target.value)} className="mt-1.5 block rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal">
+            <label className="min-w-0 text-sm font-semibold text-slate-700">Guru
+              <select value={teacherId} onChange={(e) => setTeacherId(e.target.value)} className="mt-1.5 block w-full max-w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal">
                 <option value="">Semua</option>
                 {xdir.teachers.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>

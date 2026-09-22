@@ -96,15 +96,15 @@ export function BottomBar({ role }: { role: Role }) {
   return (
     <>
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 backdrop-blur sm:hidden" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
-        <div className="grid" style={{ gridTemplateColumns: `repeat(${cols},1fr)` }}>
+        <div className="grid" style={{ gridTemplateColumns: `repeat(${cols},minmax(0,1fr))` }}>
           {shown.map((m) => (
-            <Link key={m.href} href={m.href} className={cn("flex min-h-[56px] flex-col items-center justify-center gap-1 py-2 text-[11px] font-semibold text-slate-400", active(m.href) && "text-brand-600")}>
-              <m.icon size={20} />{m.label}
+            <Link key={m.href} href={m.href} className={cn("flex min-h-[56px] min-w-0 flex-col items-center justify-center gap-1 py-2 text-[11px] font-semibold text-slate-400", active(m.href) && "text-brand-600")}>
+              <m.icon size={20} className="shrink-0" /><span className="max-w-full truncate px-1">{m.label}</span>
             </Link>
           ))}
           {rest.length > 0 && (
-            <button onClick={() => setMore(true)} className={cn("flex min-h-[56px] flex-col items-center justify-center gap-1 py-2 text-[11px] font-semibold text-slate-400", rest.some((m) => active(m.href)) && "text-brand-600")}>
-              <MoreHorizontal size={20} />Lainnya
+            <button onClick={() => setMore(true)} className={cn("flex min-h-[56px] min-w-0 flex-col items-center justify-center gap-1 py-2 text-[11px] font-semibold text-slate-400", rest.some((m) => active(m.href)) && "text-brand-600")}>
+              <MoreHorizontal size={20} className="shrink-0" /><span className="max-w-full truncate px-1">Lainnya</span>
             </button>
           )}
         </div>
