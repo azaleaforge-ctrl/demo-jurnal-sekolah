@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Download, ImageIcon, PenLine, Pencil, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { Guard, useAuth } from "@/src/lib/auth";
@@ -37,6 +37,7 @@ export default function RiwayatPage() {
   const [att, setAtt] = useState<Record<string, AttStatus>>({});
   const [savingAtt, setSavingAtt] = useState(false);
   const [cari, setCari] = useState("");
+  const toastRef = useRef(false);
   const daftar = editing ? rosterFor(editing) : [];
   const cocok = useMemo(() => {
     const q = cari.trim().toLowerCase();
@@ -77,9 +78,17 @@ export default function RiwayatPage() {
         mine = JSON.parse(localStorage.getItem("my-journals") || "[]");
       } catch {}
       const seen = new Set(mine.map((m) => m.id));
-      const clsName = (id?: string) => dir.classes.find((c) => c.id === id)?.name || "-";
-      const subName = (id?: string) => dir.subjects.find((s) => s.id === id)?.name || "-";
-      const schName = (id?: string, endId?: string) => rangeLabel(dir.schedules, id, endId) || slotLabel(dir.schedules, id) || undefined;
+      const clsName = (id?: string) => dir.classes.find((c) => c.id === id)?.name || "";
+      const subName = (id?: string) => dir.subjects.find((s) => s.id === id)?.name || "";
+      const schName = (id?: string, endId?: string) => rangeLabel(dir.schedules, id, endId) || slotLabel(dir.schedules, id) || "";
+      const matTitle = (id?: string) => dir.materials.find((m) => m.id === id)?.title || "";
+      const lbl = (...vals: (string | undefined | null)[]) => {
+        for (const v of vals) {
+          const s = String(v ?? "").trim();
+          if (s && s !== "-") return s;
+        }
+        return "-";
+      };
       try {
         // Riwayat pribadi: journals where teacher_id = saya
         const js = user?.id
@@ -95,14 +104,17 @@ export default function RiwayatPage() {
             });
             return {
               id: j.id, teacher: user?.name || "Saya",
-              class: clsName(j.class_id), subject: subName(j.subject_id),
-              material: j.material || j.custom_material || "", date: j.date || "",
+              class: lbl(j.class_name, j.class, clsName(j.class_id)),
+              subject: lbl(j.subject_name, j.subject, subName(j.subject_id)),
+              material: j.material_text || j.material || j.custom_material || "",
+              date: j.date || "",
               notes: j.notes || "", photo: j.photo_url || "", signature: j.signature_url || "",
               teacher_status: j.teacher_status || "hadir",
               leave_note: j.leave_note, sick_letter_name: j.sick_letter_url ? String(j.sick_letter_url).split("/").pop() : undefined,
               sick_letter_note: j.sick_letter_note, stats,
               class_id: j.class_id, subject_id: j.subject_id, teacher_id: j.teacher_id,
-              schedule: schName(j.schedule_id, j.schedule_end_id), schedule_id: j.schedule_id, schedule_end_id: j.schedule_end_id, attendances: j.attendances,
+              schedule: lbl(j.schedule_label, j.schedule, schName(j.schedule_id, j.schedule_end_id)) || undefined,
+              schedule_id: j.schedule_id, schedule_end_id: j.schedule_end_id, attendances: j.attendances,
             } as Row;
           });
         const fallback = mine.length || remote.length ? [] : journals.map((j) => ({
@@ -116,6 +128,7 @@ export default function RiwayatPage() {
           sick_letter_name: undefined, sick_letter_note: undefined,
         }));
         setRows([...mine, ...fallback].sort((a, b) => b.date.localeCompare(a.date)));
+        if (!toastRef.current) { toastRef.current = true; toast.info("Mode demo — memakai data lokal."); }
       } finally {
         setLoading(false);
       }

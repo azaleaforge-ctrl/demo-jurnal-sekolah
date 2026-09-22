@@ -53,6 +53,8 @@ export type SavedJournal = {
   stats: { hadir: number; sakit: number; izin: number; alpha: number };
   class_id?: string; subject_id?: string; teacher_id?: string;
   schedule?: string; schedule_id?: string; schedule_end_id?: string;
+  teacher_name?: string; class_name?: string; subject_name?: string;
+  schedule_label?: string; material_text?: string;
   attendances?: { student_id: string; status: string }[];
 };
 
@@ -290,6 +292,10 @@ function Wizard() {
             data: {
               teacher_id: user?.id || "", class_id: classId, subject_id: subjectId, schedule_id: mulaiId,
               schedule_end_id: needEnd && endId ? endId : null,
+              // Label jadi (denormalisasi §2): tampil sama di semua device tanpa join.
+              teacher_name: user?.name || "", class_name: kelasName, subject_name: mapelName,
+              schedule_label: rangeLabel(schedules, mulaiId, needEnd ? endId : undefined),
+              material_text: material,
               material_id: (!useManual && materialId) || null,
               custom_material: (useManual || !materialId) ? material : null,
               notes, photo_url, signature_url, teacher_status: teacherStatus,
@@ -336,6 +342,9 @@ function Wizard() {
         class_id: classId, subject_id: subjectId, teacher_id: user?.id,
         schedule: rangeLabel(schedules, mulaiId, needEnd ? endId : undefined), schedule_id: mulaiId,
         schedule_end_id: needEnd && endId ? endId : undefined,
+        teacher_name: user?.name || "", class_name: kelasName, subject_name: mapelName,
+        schedule_label: rangeLabel(schedules, mulaiId, needEnd ? endId : undefined),
+        material_text: material,
         attendances: attList,
       };
       try {

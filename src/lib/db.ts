@@ -29,8 +29,11 @@ const stamp = (data: any) => { const t = nowID(); return { ...data, created_at: 
 
 // Cache direktori sesi: dibaca sekali, dipakai ulang antar halaman; hangus tiap tulis.
 type DirData = { users: Doc[]; classes: Doc[]; subjects: Doc[]; students: Doc[]; schedules: Doc[]; materials: Doc[] };
+type DirSources = Directory["sources"];
 let dirCache: DirData | null = null;
+let dirSources: DirSources | null = null;
 let dirInflight: Promise<DirData> | null = null;
+function bustDir() { dirCache = null; dirSources = null; dirInflight = null; }
 
 // ---------- Repo typed per koleksi §2 ----------
 
@@ -48,8 +51,6 @@ export async function countDocs(name: string): Promise<number> {
   const s = await getCountFromServer(collection(needDb(), name));
   return s.data().count;
 }
-
-function bustDir() { dirCache = null; }
 
 export async function addDocTo(name: string, data: any): Promise<string> {
   const r = await addDoc(collection(needDb(), name), stamp(data));
@@ -237,7 +238,14 @@ export function useCollection<T extends Doc>(name: string, opts?: { wheres?: Whe
 export type Directory = {
   users: Doc[]; classes: Doc[]; subjects: Doc[]; students: Doc[];
   schedules: Doc[]; materials: Doc[]; loading: boolean; remote: boolean;
+  // Sumber per koleksi (firestore|mock) — anti join silang dunia.
+  sources: Record<"users" | "classes" | "subjects" | "students" | "schedules" | "materials", "firestore" | "mock">;
 };
+
+const mockSources = {
+  users: "mock", classes: "mock", subjects: "mock",
+  students: "mock", schedules: "mock", materials: "mock",
+} as Directory["sources"];
 
 // Satu hook direktori untuk dropdown + agregasi (fallback mock per koleksi).
 // Cache sesi: 6 koleksi dibaca sekali, dipakai ulang antar halaman tanpa refetch.
@@ -250,6 +258,11 @@ async function loadDirectory(): Promise<DirData> {
         listDocs("students"), listDocs("schedules"), listDocs("materials"),
       ]);
       const pick = (rows: Doc[], fb: Doc[]) => (rows.length ? rows : fb);
+      const src = (rows: Doc[]): "firestore" | "mock" => (rows.length ? "firestore" : "mock");
+      dirSources = {
+        users: src(users), classes: src(classes), subjects: src(subjects),
+        students: src(students), schedules: src(schedules), materials: src(materials),
+      };
       dirCache = {
         users: pick(users, mockUsers as Doc[]), classes: pick(classes, mockClasses as Doc[]),
         subjects: pick(subjects, mockSubjects as Doc[]), students: pick(students, mockStudents as Doc[]),
@@ -265,17 +278,20 @@ export function useDirectory(): Directory {
   const [dir, setDir] = useState({ users: mockUsers as Doc[], classes: mockClasses as Doc[], subjects: mockSubjects as Doc[], students: mockStudents as Doc[], schedules: mockSchedules as Doc[], materials: mockMaterials as Doc[] });
   const [loading, setLoading] = useState(!dirCache);
   const [remote, setRemote] = useState(!!dirCache);
+  const [sources, setSources] = useState<DirSources>(dirSources ?? mockSources);
   useEffect(() => {
     let on = true;
-    if (dirCache) { setDir(dirCache); setRemote(true); setLoading(false); return; }
+    if (dirCache) { setDir(dirCache); setRemote(true); setSources(dirSources ?? mockSources); setLoading(false); return; }
     (async () => {
       try {
         const d = await loadDirectory();
         if (!on) return;
         setDir(d);
         setRemote(true);
+        setSources(dirSources ?? mockSources);
       } catch {
         if (!on) return;
+        setSources(mockSources);
         toast.info("Mode demo — memakai data lokal.");
       } finally {
         if (on) setLoading(false);
@@ -283,7 +299,7 @@ export function useDirectory(): Directory {
     })();
     return () => { on = false; };
   }, []);
-  return { ...dir, loading, remote };
+  return { ...dir, loading, remote, sources };
 }
 
 export function mockSetting() {

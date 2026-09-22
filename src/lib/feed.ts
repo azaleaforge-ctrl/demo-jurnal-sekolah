@@ -27,11 +27,26 @@ export type FeedEntry = {
   schedule?: string;
   schedule_id?: string;
   schedule_end_id?: string;
+  // Label jadi (denormalisasi §2) — diutamakan agar sama di semua device.
+  teacher_name?: string; class_name?: string; subject_name?: string;
+  schedule_label?: string; material_text?: string;
+  // Sumber baris: firestore | laravel | local | mock — anti join silang dunia.
+  src?: string;
   attendances?: { student_id: string; status: string }[];
   stats: { hadir: number; sakit: number; izin: number; alpha: number };
 };
 
 const emptyStats = () => ({ hadir: 0, sakit: 0, izin: 0, alpha: 0 });
+
+// Prioritas label: embed > nama lama > join direktori (dunia sama) > strip.
+// Nilai kosong/"-" dilewati agar kolom tak pernah kosong bila datanya ada.
+function pickLabel(...vals: (string | undefined | null)[]): string {
+  for (const v of vals) {
+    const s = String(v ?? "").trim();
+    if (s && s !== "-") return s;
+  }
+  return "-";
+}
 
 function readLS(key: string): any[] {
   if (typeof window === "undefined") return [];
@@ -59,20 +74,22 @@ function normalizeMock(j: (typeof journals)[number]): FeedEntry {
     signature: j.signature || "",
     teacher_status: "hadir",
     stats: { ...j.stats },
+    src: "mock",
   };
 }
 
 // Baris mentah backend (snake_case §3) → FeedEntry.
-export function normalizeRemote(r: any): FeedEntry {
+// Label embed diutamakan; join direktori hanya bila dunia sama (ditangani pemanggil).
+export function normalizeRemote(r: any, src = "laravel"): FeedEntry {
   return {
     id: String(r.id ?? `r${Date.now()}`),
     teacher_id: r.teacher_id,
-    teacher: r.teacher ?? r.teacher_name ?? "-",
+    teacher: pickLabel(r.teacher_name, r.teacher === "-" ? undefined : r.teacher),
     class_id: r.class_id,
-    class: r.class ?? r.class_name ?? "-",
+    class: pickLabel(r.class_name, r.class === "-" ? undefined : r.class),
     subject_id: r.subject_id,
-    subject: r.subject ?? r.subject_name ?? "-",
-    material: r.material ?? r.custom_material ?? "",
+    subject: pickLabel(r.subject_name, r.subject === "-" ? undefined : r.subject),
+    material: pickLabel(r.material_text, r.material, r.custom_material),
     date: r.date ?? "",
     notes: r.notes ?? "",
     photo: r.photo ?? r.photo_url ?? "",
@@ -81,11 +98,17 @@ export function normalizeRemote(r: any): FeedEntry {
     leave_note: r.leave_note,
     sick_letter_name: r.sick_letter_name ?? (r.sick_letter_url ? String(r.sick_letter_url).split("/").pop() : undefined),
     sick_letter_note: r.sick_letter_note,
-    schedule: r.schedule ?? r.schedule_name,
+    schedule: pickLabel(r.schedule_label, r.schedule, r.schedule_name),
     schedule_id: r.schedule_id,
     schedule_end_id: r.schedule_end_id ?? r.schedule_end ?? null,
+    teacher_name: r.teacher_name,
+    class_name: r.class_name,
+    subject_name: r.subject_name,
+    schedule_label: r.schedule_label,
+    material_text: r.material_text,
     attendances: r.attendances,
     stats: r.stats ?? r.attendance_summary ?? emptyStats(),
+    src,
   };
 }
 
@@ -95,27 +118,39 @@ export function normalizeRemote(r: any): FeedEntry {
 // + sort client + slice limitN. Attendances hanya untuk journal tampil (chunk `in`).
 export type FeedDir = { classes: Doc[]; subjects: Doc[]; users: Doc[]; materials: Doc[]; schedules: Doc[] };
 
-export async function getFeedFirestore(limitN = 60, opts?: { since?: string; dir?: FeedDir }): Promise<FeedEntry[]> {
+export async function getFeedFirestore(limitN = 60, opts?: { since?: string }): Promise<FeedEntry[]> {
   const d = new Date();
   const since = opts?.since ?? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+  // Direktori SELALU dibaca dari Firestore yang sama dengan journals (dunia tunggal).
+  // Gagal sebagian → list kosong (join dilewati, label embed tetap tampil). Tanpa fallback mock.
   const [all, lists] = await Promise.all([
     listDocs("journals", { wheres: [["date", ">=", since]] }),
-    (async (): Promise<FeedDir> => opts?.dir ?? {
-      classes: await listDocs("classes"),
-      subjects: await listDocs("subjects"),
-      users: await listDocs("users"),
-      materials: await listDocs("materials"),
-      schedules: await listDocs("schedules"),
+    (async (): Promise<FeedDir> => {
+      try {
+        const [classes, subjects, users, materials, schedules] = await Promise.all([
+          listDocs("classes"), listDocs("subjects"), listDocs("users"),
+          listDocs("materials"), listDocs("schedules"),
+        ]);
+        return { classes, subjects, users, materials, schedules };
+      } catch {
+        return { classes: [], subjects: [], users: [], materials: [], schedules: [] };
+      }
     })(),
   ]);
   const { classes: cls, subjects: sub, users: usr, materials: mat, schedules: sch } = lists;
   const js = all
     .sort((a, b) => String(b.created_at || b.date || "").localeCompare(String(a.created_at || a.date || "")))
     .slice(0, limitN);
-  const clsName = (id?: string) => cls.find((c) => c.id === id)?.name || "-";
-  const subName = (id?: string) => sub.find((s) => s.id === id)?.name || "-";
-  const tchName = (id?: string) => usr.find((u) => u.id === id)?.name || "-";
-  const matTitle = (id?: string) => mat.find((m) => m.id === id)?.title || "";
+  const joinName = (list: Doc[], id?: string, field = "name") => {
+    if (!id) return "";
+    const m = list.find((x) => x.id === id);
+    const v = m ? String((m as any)[field] ?? "") : "";
+    return v.trim() || "";
+  };
+  const clsName = (id?: string) => joinName(cls, id) || "-";
+  const subName = (id?: string) => joinName(sub, id) || "-";
+  const tchName = (id?: string) => joinName(usr, id) || "-";
+  const matTitle = (id?: string) => joinName(mat, id, "title");
   const ids = js.map((j) => j.id);
   const atts: Doc[] = [];
   for (let i = 0; i < ids.length; i += 30) {
@@ -135,8 +170,11 @@ export async function getFeedFirestore(limitN = 60, opts?: { since?: string; dir
       const k = String(a.status || "").toLowerCase() as keyof typeof stats;
       if (k in stats) stats[k]++;
     });
-    const base = normalizeRemote(j);
-    const schedLabel = base.schedule || (j.schedule_id ? rangeLabel(sch, j.schedule_id, j.schedule_end_id) : "") || "-";
+    const base = normalizeRemote(j, "firestore");
+    // Embed dulu; join direktori (dunia sama) hanya bila embed kosong.
+    const schedLabel = base.schedule !== "-"
+      ? base.schedule
+      : (j.schedule_id ? rangeLabel(sch, j.schedule_id, j.schedule_end_id) : "") || "-";
     return {
       ...base,
       teacher: base.teacher === "-" && j.teacher_id ? tchName(j.teacher_id) : base.teacher,
@@ -150,14 +188,14 @@ export async function getFeedFirestore(limitN = 60, opts?: { since?: string; dir
   });
 }
 
-// Fallback lokal bila Firestore tak terjangkau (arsip wizard + mock).
+// Fallback lokal bila Firestore tak terjangkau (arsip wizard + mock) — satu dunia lokal.
 export function getSharedFeed(): FeedEntry[] {
   const mine = readLS("journals-feed");
   const legacy = readLS("my-journals");
   const seen = new Set(mine.map((m: any) => m.id));
   const merged: FeedEntry[] = [
-    ...mine,
-    ...legacy.filter((m: any) => !seen.has(m.id)),
+    ...mine.map((m: any) => ({ src: "local", ...m })),
+    ...legacy.filter((m: any) => !seen.has(m.id)).map((m: any) => ({ src: "local", ...m })),
     ...journals.map(normalizeMock),
   ];
   return merged.sort((a, b) => b.date.localeCompare(a.date));
@@ -205,14 +243,21 @@ export function summarizeFeed(feed: FeedEntry[], today: string, month: string, d
   });
   const guru = { hadir: 0, izin: 0, sakit: 0 };
   byTeacher.forEach((f) => { guru[f.teacher_status]++; });
-  const total = dir.teachers.length;
+  // Roster = direktori ∪ nama guru yang muncul di feed (anti daftar kosong/bias dunia).
+  const roster = [...dir.teachers];
+  monthFeed.forEach((f) => {
+    if (f.teacher !== "-" && !roster.some((t) => t.name === f.teacher || (f.teacher_id && t.id === f.teacher_id))) {
+      roster.push({ id: f.teacher_id || `feed:${f.teacher}`, name: f.teacher });
+    }
+  });
+  const total = roster.length;
   const submitted = byTeacher.size;
   const siswa = emptyStats();
   monthFeed.forEach((f) => {
     siswa.hadir += f.stats.hadir; siswa.sakit += f.stats.sakit;
     siswa.izin += f.stats.izin; siswa.alpha += f.stats.alpha;
   });
-  const perTeacher = dir.teachers.map((t) => {
+  const perTeacher = roster.map((t) => {
     const f = byTeacher.get(t.name);
     return { teacher_id: t.id, name: t.name, mapel: mapelOf(t.id, dir), submitted_today: !!f, teacher_status: (f?.teacher_status ?? null) as TeacherStatus | null };
   });

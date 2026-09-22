@@ -87,7 +87,12 @@
 │   ├── class_id: string
 │   ├── subject_id: string
 │   ├── schedule_id: string (slot MULAI mengajar guru — bukan sesi siswa)
-│   ├── schedule_end_id: string nullable (slot SELESAI pasangan; kosong untuk data lama)
+  │   ├── schedule_end_id: string nullable (slot SELESAI pasangan; kosong untuk data lama)
+  │   ├── teacher_name: string opsional (label jadi — diutamakan saat tampil, abaikan bila tak ada)
+  │   ├── class_name: string opsional (label jadi — diutamakan saat tampil, abaikan bila tak ada)
+  │   ├── subject_name: string opsional (label jadi — diutamakan saat tampil, abaikan bila tak ada)
+  │   ├── schedule_label: string opsional ("mulai s/d selesai" — diutamakan saat tampil, abaikan bila tak ada)
+  │   ├── material_text: string opsional (label jadi — diutamakan saat tampil, abaikan bila tak ada)
 │   ├── material_id: string (opsional)
 │   ├── custom_material: string (opsional)
 │   ├── notes: text

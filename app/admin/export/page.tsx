@@ -50,17 +50,15 @@ export default function ExportPage() {
     if (dir.loading) return;
     (async () => {
       try {
-        setFeed((await adminFeed({ tanggal_dari: dari, sampai })).map(normalizeRemote));
+        setFeed((await adminFeed({ tanggal_dari: dari, sampai })).map((r: any) => normalizeRemote(r)));
         return;
       } catch {}
       try {
-        setFeed(await getFeedFirestore(300, {
-          since: dari || undefined,
-          dir: { classes: dir.classes, subjects: dir.subjects, users: dir.users, materials: dir.materials, schedules: dir.schedules },
-        }));
+        setFeed(await getFeedFirestore(300, { since: dari || undefined }));
         return;
       } catch {}
       setFeed(getSharedFeed());
+      toast.info("Mode demo — memakai data lokal.");
     })();
     getSetting()
       .then((s) => { if (s) setSch({ school_name: s.school_name, academic_year: s.academic_year, semester: s.semester.toLowerCase() === "genap" ? "Genap" : "Ganjil", principal_name: s.principal_name }); })

@@ -39,17 +39,14 @@ export default function KepsekPage() {
       };
       const bulan = today.slice(0, 7);
       try {
-        const remote = (await adminFeed({})).map(normalizeRemote);
+        const remote = (await adminFeed({})).map((r: any) => normalizeRemote(r));
         if (!on) return;
         setFeed(remote);
         setSummary(summarizeFeed(remote, today, bulan, fdir));
         return;
       } catch {}
       try {
-        const fs = await getFeedFirestore(100, {
-          since: `${bulan}-01`,
-          dir: { classes: dir.classes, subjects: dir.subjects, users: dir.users, materials: dir.materials, schedules: dir.schedules },
-        });
+        const fs = await getFeedFirestore(100, { since: `${bulan}-01` });
         if (!on) return;
         setFeed(fs);
         setSummary(summarizeFeed(fs, today, bulan, fdir));
@@ -59,6 +56,7 @@ export default function KepsekPage() {
       const local = getSharedFeed();
       setFeed(local);
       setSummary(summarizeFeed(local, today, bulan, fdir));
+      toast.info("Mode demo — memakai data lokal.");
     })();
     return () => { on = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps

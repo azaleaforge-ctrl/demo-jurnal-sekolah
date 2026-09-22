@@ -50,17 +50,14 @@ export default function AdminHome() {
           adminFeed({ tanggal_dari: `${bulan}-01`, sampai: `${bulan}-${last}` }),
         ]);
         if (!on) return;
-        const remote = f.map(normalizeRemote);
+        const remote = f.map((r: any) => normalizeRemote(r));
         setFeed(remote);
         setSummary(summaryFromRemote(s, remote, bulan, fdir));
         return;
       } catch {}
       // 2) Firestore langsung (§5) — agregasi client aturan §4.6, lingkup bulan + limit
       try {
-        const fs = await getFeedFirestore(100, {
-          since: `${bulan}-01`,
-          dir: { classes: dir.classes, subjects: dir.subjects, users: dir.users, materials: dir.materials, schedules: dir.schedules },
-        });
+        const fs = await getFeedFirestore(100, { since: `${bulan}-01` });
         if (!on) return;
         setFeed(fs);
         setSummary(summarizeFeed(fs, tanggal, bulan, fdir));
