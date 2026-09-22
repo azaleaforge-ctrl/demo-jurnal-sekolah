@@ -1,0 +1,153 @@
+"use client";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+import { Download, FileSpreadsheet, FileText, Inbox } from "lucide-react";
+import { Guard } from "@/src/lib/auth";
+import { AppShell } from "@/src/components/layout";
+import { Card } from "@/src/components/ui/card";
+import { Button } from "@/src/components/ui/button";
+import { Skeleton, Spinner } from "@/src/components/ui/misc";
+import { cn } from "@/src/lib/utils";
+import { downloadRekap, filterRekap, type RekapTipe, type ExportDir } from "@/src/lib/export";
+import { getSharedFeed, getFeedFirestore, normalizeRemote, type FeedEntry } from "@/src/lib/feed";
+import { useDirectory, getSetting, mockSetting } from "@/src/lib/db";
+import { adminFeed } from "@/src/lib/api";
+import { todayID } from "@/src/lib/utils";
+
+export default function ExportPage() {
+  const today = todayID();
+  const dir = useDirectory();
+  const [tipe, setTipe] = useState<RekapTipe>("guru");
+  const [dari, setDari] = useState(today.slice(0, 7) + "-01");
+  const [sampai, setSampai] = useState(today);
+  const [classId, setClassId] = useState("");
+  const [teacherId, setTeacherId] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [feed, setFeed] = useState<FeedEntry[]>([]);
+  const [sch, setSch] = useState(mockSetting());
+
+  useEffect(() => {
+    if (dir.loading) return;
+    (async () => {
+      try {
+        setFeed((await adminFeed({ tanggal_dari: dari, sampai })).map(normalizeRemote));
+        return;
+      } catch {}
+      try {
+        setFeed(await getFeedFirestore(300));
+        return;
+      } catch {}
+      setFeed(getSharedFeed());
+    })();
+    getSetting()
+      .then((s) => { if (s) setSch({ school_name: s.school_name, academic_year: s.academic_year, semester: s.semester.toLowerCase() === "genap" ? "Genap" : "Ganjil" }); })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dir.loading]);
+
+  const xdir: ExportDir = useMemo(() => ({
+    school: { name: sch.school_name, academicYear: sch.academic_year, semester: sch.semester.toLowerCase() === "genap" ? "Genap" : "Ganjil" },
+    students: dir.students.map((s) => ({ id: s.id, nisn: s.nisn, name: s.name, class_id: s.class_id })),
+    classes: dir.classes.map((c) => ({ id: c.id, name: c.name })),
+    teachers: dir.users.filter((u) => u.role === "guru").map((t) => ({ id: t.id, name: t.name })),
+  }), [dir, sch]);
+
+  const rows = useMemo(() => filterRekap(feed, dari, sampai, classId, teacherId, xdir), [feed, dari, sampai, classId, teacherId, xdir]);
+  const guruSet = useMemo(() => new Set(rows.map((r) => r.teacher)), [rows]);
+  const siswaCount = useMemo(() => {
+    const clsNames = new Set(rows.map((r) => r.class));
+    return xdir.students.filter((s) => clsNames.has(xdir.classes.find((c) => c.id === s.class_id)?.name || "")).length;
+  }, [rows, xdir]);
+
+  async function run(format: "xlsx" | "pdf") {
+    if (busy) return;
+    const id = `${format}-${tipe}`;
+    setBusy(id);
+    try {
+      const mode = await downloadRekap({ tipe, format, dari, sampai, classId: classId || undefined, teacherId: teacherId || undefined, feed, dir: xdir });
+      toast.success(mode === "remote" ? "File dari server diunduh." : "File rekap diunduh (dibuat lokal).");
+    } catch (e: any) {
+      toast.error(e.message || "Gagal membuat file.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const cards = [
+    { format: "xlsx" as const, icon: FileSpreadsheet, label: `Rekap ${tipe === "guru" ? "Guru" : "Siswa"} (Excel)`, desc: "Header biru, border, freeze & filter, baris TOTAL." },
+    { format: "pdf" as const, icon: FileText, label: `Rekap ${tipe === "guru" ? "Guru" : "Siswa"} (PDF)`, desc: "Kop sekolah, tabel rapi, blok tanda tangan." },
+  ];
+
+  return (
+    <Guard roles={["admin"]}>
+      <AppShell role="admin" title="Export Center" hint="Coba server dulu, gagal → dibuat lokal dari data feed">
+        <Card>
+          <div className="flex flex-wrap items-end gap-2">
+            <div>
+              <span className="mb-1.5 block text-sm font-semibold text-slate-700">Tipe rekap</span>
+              <div className="flex gap-1 rounded-xl bg-slate-100 p-1 text-sm font-semibold">
+                {(["guru", "siswa"] as const).map((t) => (
+                  <button key={t} onClick={() => setTipe(t)} className={cn("rounded-lg px-4 py-1.5 capitalize", tipe === t ? "bg-white shadow-soft" : "text-slate-500")}>
+                    {t === "guru" ? "Guru" : "Siswa"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <label className="text-sm font-semibold text-slate-700">Dari <input type="date" value={dari} onChange={(e) => setDari(e.target.value)} className="mt-1.5 block rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal" /></label>
+            <label className="text-sm font-semibold text-slate-700">Sampai <input type="date" value={sampai} onChange={(e) => setSampai(e.target.value)} className="mt-1.5 block rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal" /></label>
+            <label className="text-sm font-semibold text-slate-700">Kelas
+              <select value={classId} onChange={(e) => setClassId(e.target.value)} className="mt-1.5 block rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal">
+                <option value="">Semua</option>
+                {xdir.classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </label>
+            <label className="text-sm font-semibold text-slate-700">Guru
+              <select value={teacherId} onChange={(e) => setTeacherId(e.target.value)} className="mt-1.5 block rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal">
+                <option value="">Semua</option>
+                {xdir.teachers.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </label>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2 rounded-xl bg-slate-50 px-4 py-3 text-sm">
+            <span><b>{rows.length}</b> jurnal</span><span className="text-slate-300">·</span>
+            <span><b>{guruSet.size}</b> guru</span><span className="text-slate-300">·</span>
+            <span><b>{siswaCount}</b> siswa terdampak</span>
+          </div>
+        </Card>
+
+        {rows.length === 0 ? (
+          <div className="mt-4 grid place-items-center gap-2 rounded-2xl border border-dashed border-slate-200 bg-white px-6 py-12 text-center">
+            <span className="grid size-12 place-items-center rounded-2xl bg-brand-50 text-brand-500"><Inbox size={22} /></span>
+            <p className="font-display font-bold">Tidak ada data pada filter ini</p>
+            <p className="max-w-xs text-sm text-slate-500">Longgarkan rentang tanggal atau pilih kelas/guru lain.</p>
+          </div>
+        ) : (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {cards.map((c) => {
+              const id = `${c.format}-${tipe}`;
+              return (
+                <Card key={id}>
+                  <div className="flex items-start gap-3">
+                    <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-brand-50 text-brand-600"><c.icon size={20} /></span>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-display font-bold">{c.label}</p>
+                      <p className="text-sm text-slate-500">{c.desc}</p>
+                      {busy === id ? (
+                        <div className="mt-3 space-y-2"><Skeleton className="h-2.5 w-full" /><Skeleton className="h-2.5 w-2/3" /></div>
+                      ) : (
+                        <Button className="mt-3" disabled={!!busy} onClick={() => run(c.format)}>
+                          {busy ? <Spinner /> : <Download size={15} />} Unduh
+                        </Button>
+                      )}
+                      {busy === id && <Button className="mt-3" disabled><Spinner /> Memproses…</Button>}
+                    </div>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </AppShell>
+    </Guard>
+  );
+}

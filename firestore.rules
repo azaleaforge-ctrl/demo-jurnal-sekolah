@@ -1,0 +1,10 @@
+// PERINGATAN: rules terbuka khusus MODE UJICOBA (§5). Jangan pakai di produksi —
+// naik ke Laravel + Sanctum dan kunci rules per auth/role sebelum go-live.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

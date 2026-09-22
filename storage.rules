@@ -1,0 +1,8 @@
+// PERINGATAN: rules terbuka khusus MODE UJICOBA (§5). Jangan pakai di produksi.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if true;
+    }
+  }
+}

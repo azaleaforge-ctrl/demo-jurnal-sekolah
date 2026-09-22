@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: light; }
+html { -webkit-tap-highlight-color: transparent; }
+body { font-family: "Plus Jakarta Sans", system-ui, sans-serif; background: #F6F7FB; }
+.font-display { font-family: "Sora", "Plus Jakarta Sans", sans-serif; }
+
+@media print {
+  aside, nav, header, .no-print { display: none !important; }
+  main { padding: 0 !important; }
+}
