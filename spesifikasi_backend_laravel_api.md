@@ -195,8 +195,8 @@
   Total: PDF diletakkan di halaman paling bawah/terakhir.
 * `GET /rekap-excel?tipe=guru|siswa&...` - File `.xlsx` asli (header berwarna, border, total otomatis).
   Sheet 2 = TOTAL KESELURUHAN (H/S/I/A + %hadir). Aturan filter sama seperti PDF.
-  Mode periode (`periode=harian|mingguan|bulanan`): harian/mingguan = tabel detail jurnal; **bulanan = tabel ANGKA rekap**
-  (guru: Nama|H|I|S|Jumlah; siswa: NISN|Nama|H|S|I|A|%Hadir + TOTAL). Kolom "Jam Pelaksanaan" selalu gabungan
+  Mode periode (`periode=harian|mingguan|bulanan`): harian/mingguan = tabel detail jurnal; **bulanan guru = tabel DETAIL
+  sebulan penuh** (semua jurnal periode itu + TOTAL); bulanan siswa = tabel ANGKA (NISN|Nama|H|S|I|A|%Hadir + TOTAL). Kolom "Jam Pelaksanaan" selalu gabungan
   "mulai s/d selesai". Laporan siswa: meta "Wali Kelas: {wali}" + blok TTD Wali Kelas ({wali kelas}) & Kepala Sekolah
   ({principal_name}); laporan guru: blok TTD Guru Mapel & Kepala Sekolah ({principal_name}).
 

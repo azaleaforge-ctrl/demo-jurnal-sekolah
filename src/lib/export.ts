@@ -22,7 +22,7 @@ const defaultDir: ExportDir = { school: fbSchool, students: fbStudents, classes:
 
 export type RekapOpts = {
   tipe: RekapTipe;
-  periode?: PeriodeMode; // default "mingguan" = tabel detail (harian/mingguan detail, bulanan angka)
+  periode?: PeriodeMode; // harian/mingguan = tabel detail; bulanan guru = detail sebulan penuh, bulanan siswa = angka
   dari: string; // YYYY-MM-DD, "" = tanpa batas
   sampai: string;
   classId?: string;
@@ -308,28 +308,24 @@ export async function buildRekapExcel(o: RekapOpts & { rows: FeedEntry[] }): Pro
     metaRow(ws, 5, "Tahun Pelajaran", `${sch.academicYear}`, "Guru Pengampu", guruName);
     metaRow(ws, 6, "Semester", sch.semester, "Periode", metaPeriode(o.dari, o.sampai));
     if (o.periode === "bulanan") {
-      // Tabel ANGKA rekap: No|Nama|H|I|S|Jumlah + TOTAL.
-      const agg = new Map<string, { h: number; i: number; s: number; n: number }>();
-      o.rows.forEach((j) => {
-        const g = agg.get(j.teacher) || { h: 0, i: 0, s: 0, n: 0 };
-        if (j.teacher_status === "hadir") g.h++;
-        else if (j.teacher_status === "izin") g.i++;
-        else g.s++;
-        g.n++;
-        agg.set(j.teacher, g);
+      // Bulanan guru = FULL DETAIL sebulan penuh + TOTAL di akhir (kontrak §3E).
+      headerRow(ws, 7, ["No", "Hari & Tanggal", "Jam Pelaksanaan", "Kelas", "Nama Guru", "Materi Pembelajaran", "Catatan", "Foto Dokumentasi", "Tanda Tangan Guru"]);
+      const mediaB = await buildGuruMedia(o.rows, { onProgress: o.onProgress });
+      o.rows.forEach((j, i) => {
+        const r = 8 + i;
+        bodyRow(ws, r, [
+          i + 1, hariTanggal(j.date), jamRange(j.schedule), j.class, j.teacher,
+          j.material || "-", j.notes || "-",
+          mediaB[i].foto ? "" : j.photo ? "Ada" : "-", mediaB[i].ttd ? "" : j.signature ? "Ada" : "-",
+        ], false, 64);
+        embedCell(wb, ws, mediaB[i].foto, 7, r, 108, 64);
+        embedCell(wb, ws, mediaB[i].ttd, 8, r, 108, 64);
       });
-      headerRow(ws, 7, ["No", "Nama", "H", "I", "S", "Jumlah", "", "", ""]);
-      let r = 8;
-      let no = 1;
-      const gt = { h: 0, i: 0, s: 0, n: 0 };
-      [...agg.entries()].sort(([a], [b]) => a.localeCompare(b)).forEach(([name, g]) => {
-        gt.h += g.h; gt.i += g.i; gt.s += g.s; gt.n += g.n;
-        bodyRow(ws, r++, [no++, name, g.h, g.i, g.s, g.n, "", "", ""], false, 20);
-      });
-      bodyRow(ws, r, ["TOTAL", "", gt.h, gt.i, gt.s, gt.n, "", "", ""], true, 20);
-      ttdExcel(ws, r + 2, "Guru Mata Pelajaran", guruName, principal, dateStr);
+      const trB = 8 + o.rows.length;
+      bodyRow(ws, trB, [`TOTAL (${o.rows.length} jurnal)`, "", "", "", "", "", "", "", ""], true, 20);
+      ttdExcel(ws, trB + 2, "Guru Mata Pelajaran", guruName, principal, dateStr);
       ws.views = [{ state: "frozen", ySplit: 7 }];
-      ws.autoFilter = { from: "A7", to: "E7" };
+      ws.autoFilter = { from: "A7", to: "I7" };
     } else {
     headerRow(ws, 7, ["No", "Hari & Tanggal", "Jam Pelaksanaan", "Kelas", "Nama Guru", "Materi Pembelajaran", "Catatan", "Foto Dokumentasi", "Tanda Tangan Guru"]);
     const media = await buildGuruMedia(o.rows, { onProgress: o.onProgress });
@@ -550,31 +546,23 @@ export function buildRekapPdf(o: RekapOpts & { rows: FeedEntry[] }): Blob {
       ["Tahun Pelajaran", `${sch.academicYear}`], ["Semester", sch.semester],
       ["Guru Pengampu", guruName], ["Periode", metaPeriode(o.dari, o.sampai)]);
     if (o.periode === "bulanan") {
-      const agg = new Map<string, { h: number; i: number; s: number; n: number }>();
-      o.rows.forEach((j) => {
-        const g = agg.get(j.teacher) || { h: 0, i: 0, s: 0, n: 0 };
-        if (j.teacher_status === "hadir") g.h++;
-        else if (j.teacher_status === "izin") g.i++;
-        else g.s++;
-        g.n++;
-        agg.set(j.teacher, g);
-      });
-      const t = { h: 0, i: 0, s: 0, n: 0 };
-      const body = [...agg.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([name, g], idx) => {
-        t.h += g.h; t.i += g.i; t.s += g.s; t.n += g.n;
-        return [idx + 1, name, g.h, g.i, g.s, g.n];
-      });
-      body.push(["TOTAL", "", t.h, t.i, t.s, t.n]);
+      // Bulanan guru = FULL DETAIL sebulan penuh + TOTAL di akhir (kontrak §3E).
       autoTable(doc, {
         startY: y + 4,
         margin: TABLE_MARGIN,
-        head: [["No", "Nama", "H", "I", "S", "Jumlah"]],
-        body,
+        head: [["No", "Hari & Tanggal", "Jam Pelaksanaan", "Kelas", "Nama Guru", "Materi Pembelajaran", "Catatan", "Foto Dokumentasi", "Tanda Tangan Guru"]],
+        body: [
+          ...o.rows.map((j, i) => [
+            i + 1, hariTanggal(j.date), jamRange(j.schedule), j.class, j.teacher,
+            j.material || "-", j.notes || "-", j.photo ? "Ada" : "-", j.signature ? "Ada" : "-",
+          ]),
+          [`TOTAL (${o.rows.length} jurnal)`, "", "", "", "", "", "", "", ""],
+        ],
         styles: BODY_TXT,
         bodyStyles: BODY_CENTER,
         headStyles: HEAD_TXT,
         theme: "grid",
-        columnStyles: { 0: { cellWidth: 12 }, 2: { cellWidth: 14 }, 3: { cellWidth: 14 }, 4: { cellWidth: 14 }, 5: { cellWidth: 18 } },
+        columnStyles: GURU_COLS,
       });
       ttdPdf(doc, (doc as any).lastAutoTable.finalY + 8, "Guru Mata Pelajaran", guruName, principal, dateStr);
       footers(doc);
@@ -815,32 +803,31 @@ export async function buildRekapPdfAsync(o: RekapOpts & { rows: FeedEntry[] }): 
     ["Tahun Pelajaran", `${sch.academicYear}`], ["Semester", sch.semester],
     ["Guru Pengampu", guruName], ["Periode", metaPeriode(o.dari, o.sampai)]);
   if (o.periode === "bulanan") {
-    // Tabel ANGKA rekap: No|Nama|H|I|S|Jumlah + TOTAL.
-    const agg = new Map<string, { h: number; i: number; s: number; n: number }>();
-    o.rows.forEach((j) => {
-      const g = agg.get(j.teacher) || { h: 0, i: 0, s: 0, n: 0 };
-      if (j.teacher_status === "hadir") g.h++;
-      else if (j.teacher_status === "izin") g.i++;
-      else g.s++;
-      g.n++;
-      agg.set(j.teacher, g);
-    });
-    const t = { h: 0, i: 0, s: 0, n: 0 };
-    const body = [...agg.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([name, g], idx) => {
-      t.h += g.h; t.i += g.i; t.s += g.s; t.n += g.n;
-      return [idx + 1, name, g.h, g.i, g.s, g.n];
-    });
-    body.push(["TOTAL", "", t.h, t.i, t.s, t.n]);
+    // Bulanan guru = FULL DETAIL sebulan penuh + TOTAL di akhir (kontrak §3E).
+    const mediaB = await buildGuruMedia(o.rows, { onProgress: o.onProgress });
     autoTable(doc, {
       startY: y + 4,
       margin: TABLE_MARGIN,
-      head: [["No", "Nama", "H", "I", "S", "Jumlah"]],
-      body,
-      styles: BODY_TXT,
+      head: [["No", "Hari & Tanggal", "Jam Pelaksanaan", "Kelas", "Nama Guru", "Materi Pembelajaran", "Catatan", "Foto Dokumentasi", "Tanda Tangan Guru"]],
+      body: [
+        ...o.rows.map((j, i) => [
+          i + 1, hariTanggal(j.date), jamRange(j.schedule), j.class, j.teacher,
+          j.material || "-", j.notes || "-",
+          mediaB[i].foto ? " " : j.photo ? "Ada" : "-", mediaB[i].ttd ? " " : j.signature ? "Ada" : "-",
+        ]),
+        [`TOTAL (${o.rows.length} jurnal)`, "", "", "", "", "", "", "", ""],
+      ],
+      styles: { ...BODY_TXT, minCellHeight: 24 },
       bodyStyles: BODY_CENTER,
       headStyles: HEAD_TXT,
       theme: "grid",
-      columnStyles: { 0: { cellWidth: 12 }, 2: { cellWidth: 14 }, 3: { cellWidth: 14 }, 4: { cellWidth: 14 }, 5: { cellWidth: 18 } },
+      columnStyles: GURU_COLS,
+      didDrawCell: (d: any) => {
+        if (d.section !== "body") return;
+        const m = d.column.index === 7 ? mediaB[d.row.index]?.foto : d.column.index === 8 ? mediaB[d.row.index]?.ttd : null;
+        if (!m) return;
+        drawContain(doc, m, d.cell.x + 2, d.cell.y + 2, d.cell.width - 4, d.cell.height - 4);
+      },
     });
     ttdPdf(doc, (doc as any).lastAutoTable.finalY + 8, "Guru Mata Pelajaran", guruName, principal, dateStr);
     footers(doc);

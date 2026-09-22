@@ -38,6 +38,20 @@ export type FeedEntry = {
 
 const emptyStats = () => ({ hadir: 0, sakit: 0, izin: 0, alpha: 0 });
 
+// SATU komparator newest-first untuk semua sumber & viewport:
+// date desc → created_at desc → id desc (tiebreak deterministik).
+// Jurnal baru tersimpan selalu muncul PALING ATAS di semua device.
+export function byNewest(
+  a: { date?: string; created_at?: string; id?: string },
+  b: { date?: string; created_at?: string; id?: string },
+): number {
+  const d = String(b.date || "").localeCompare(String(a.date || ""));
+  if (d) return d;
+  const c = String(b.created_at || "").localeCompare(String(a.created_at || ""));
+  if (c) return c;
+  return String(b.id || "").localeCompare(String(a.id || ""));
+}
+
 // Prioritas label: embed > nama lama > join direktori (dunia sama) > strip.
 // Nilai kosong/"-" dilewati agar kolom tak pernah kosong bila datanya ada.
 function pickLabel(...vals: (string | undefined | null)[]): string {
@@ -139,7 +153,7 @@ export async function getFeedFirestore(limitN = 60, opts?: { since?: string }): 
   ]);
   const { classes: cls, subjects: sub, users: usr, materials: mat, schedules: sch } = lists;
   const js = all
-    .sort((a, b) => String(b.created_at || b.date || "").localeCompare(String(a.created_at || a.date || "")))
+    .sort(byNewest)
     .slice(0, limitN);
   const joinName = (list: Doc[], id?: string, field = "name") => {
     if (!id) return "";
@@ -198,7 +212,7 @@ export function getSharedFeed(): FeedEntry[] {
     ...legacy.filter((m: any) => !seen.has(m.id)).map((m: any) => ({ src: "local", ...m })),
     ...journals.map(normalizeMock),
   ];
-  return merged.sort((a, b) => b.date.localeCompare(a.date));
+  return merged.sort(byNewest);
 }
 
 // Dipanggil wizard saat simpan — feed inilah yang dibaca dashboard admin & kepsek.

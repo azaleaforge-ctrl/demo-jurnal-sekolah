@@ -12,7 +12,7 @@ import { journals } from "@/src/lib/mock";
 import { Lightbox } from "@/src/components/lightbox";
 import { listDocs, useDirectory, getSetting, mockSetting, rewriteAttendances } from "@/src/lib/db";
 import { downloadRekap, type ExportDir } from "@/src/lib/export";
-import { type FeedEntry } from "@/src/lib/feed";
+import { byNewest, type FeedEntry } from "@/src/lib/feed";
 import { slotLabel, rangeLabel } from "@/src/lib/slots";
 import { cn, byName } from "@/src/lib/utils";
 import type { SavedJournal } from "../jurnal-baru/page";
@@ -121,13 +121,13 @@ export default function RiwayatPage() {
           ...j, teacher_status: "hadir" as const, leave_note: undefined,
           sick_letter_name: undefined, sick_letter_note: undefined,
         }));
-        setRows([...mine, ...remote, ...fallback].sort((a, b) => b.date.localeCompare(a.date)));
+        setRows([...mine, ...remote, ...fallback].sort(byNewest));
       } catch {
         const fallback = mine.length ? [] : journals.map((j) => ({
           ...j, teacher_status: "hadir" as const, leave_note: undefined,
           sick_letter_name: undefined, sick_letter_note: undefined,
         }));
-        setRows([...mine, ...fallback].sort((a, b) => b.date.localeCompare(a.date)));
+        setRows([...mine, ...fallback].sort(byNewest));
         if (!toastRef.current) { toastRef.current = true; toast.info("Mode demo — memakai data lokal."); }
       } finally {
         setLoading(false);
