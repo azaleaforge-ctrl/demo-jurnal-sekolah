@@ -528,6 +528,40 @@ function drawContain(doc: jsPDF, m: Media, x: number, y: number, w: number, h: n
   doc.addImage(m.dataUrl, m.ext === "png" ? "PNG" : "JPEG", x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
 }
 
+// Detail guru dipecah chunk @5 baris per halaman agar foto/TTD selalu full:
+// tiap halaman tabel header diulang, tinggi baris seragam, nomor urut lanjut.
+// Kop hanya halaman 1 (startY), TOTAL + TTD + footer tetap di halaman terakhir.
+const ROWS_PER_PAGE = 5;
+function guruDetailPages(
+  doc: jsPDF,
+  body: (string | number)[][],
+  media: { foto: Media; ttd: Media }[] | null,
+  startY: number,
+) {
+  for (let p = 0; p * ROWS_PER_PAGE < body.length; p++) {
+    if (p > 0) doc.addPage();
+    const off = p * ROWS_PER_PAGE;
+    autoTable(doc, {
+      startY: p === 0 ? startY : 14,
+      margin: TABLE_MARGIN,
+      head: [["No", "Hari & Tanggal", "Jam Pelaksanaan", "Kelas", "Nama Guru", "Materi Pembelajaran", "Catatan", "Foto Dokumentasi", "Tanda Tangan Guru"]],
+      body: body.slice(off, off + ROWS_PER_PAGE),
+      styles: { ...BODY_TXT, minCellHeight: 24 },
+      bodyStyles: BODY_CENTER,
+      headStyles: HEAD_TXT,
+      theme: "grid",
+      columnStyles: GURU_COLS,
+      didDrawCell: !media ? undefined : (d: any) => {
+        if (d.section !== "body") return;
+        const gi = off + d.row.index;
+        const m = d.column.index === 7 ? media[gi]?.foto : d.column.index === 8 ? media[gi]?.ttd : null;
+        if (!m) return;
+        drawContain(doc, m, d.cell.x + 2, d.cell.y + 2, d.cell.width - 4, d.cell.height - 4);
+      },
+    });
+  }
+}
+
 export function buildRekapPdf(o: RekapOpts & { rows: FeedEntry[] }): Blob {
   const sch = (o.dir ?? defaultDir).school;
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
@@ -547,41 +581,21 @@ export function buildRekapPdf(o: RekapOpts & { rows: FeedEntry[] }): Blob {
       ["Guru Pengampu", guruName], ["Periode", metaPeriode(o.dari, o.sampai)]);
     if (o.periode === "bulanan") {
       // Bulanan guru = FULL DETAIL sebulan penuh + TOTAL di akhir (kontrak §3E).
-      autoTable(doc, {
-        startY: y + 4,
-        margin: TABLE_MARGIN,
-        head: [["No", "Hari & Tanggal", "Jam Pelaksanaan", "Kelas", "Nama Guru", "Materi Pembelajaran", "Catatan", "Foto Dokumentasi", "Tanda Tangan Guru"]],
-        body: [
-          ...o.rows.map((j, i) => [
-            i + 1, hariTanggal(j.date), jamRange(j.schedule), j.class, j.teacher,
-            j.material || "-", j.notes || "-", j.photo ? "Ada" : "-", j.signature ? "Ada" : "-",
-          ]),
-          [`TOTAL (${o.rows.length} jurnal)`, "", "", "", "", "", "", "", ""],
-        ],
-        styles: BODY_TXT,
-        bodyStyles: BODY_CENTER,
-        headStyles: HEAD_TXT,
-        theme: "grid",
-        columnStyles: GURU_COLS,
-      });
+      guruDetailPages(doc, [
+        ...o.rows.map((j, i) => [
+          i + 1, hariTanggal(j.date), jamRange(j.schedule), j.class, j.teacher,
+          j.material || "-", j.notes || "-", j.photo ? "Ada" : "-", j.signature ? "Ada" : "-",
+        ]),
+        [`TOTAL (${o.rows.length} jurnal)`, "", "", "", "", "", "", "", ""],
+      ], null, y + 4);
       ttdPdf(doc, (doc as any).lastAutoTable.finalY + 8, "Guru Mata Pelajaran", guruName, principal, dateStr);
       footers(doc);
       return doc.output("blob");
     }
-    autoTable(doc, {
-      startY: y + 4,
-      margin: TABLE_MARGIN,
-      head: [["No", "Hari & Tanggal", "Jam Pelaksanaan", "Kelas", "Nama Guru", "Materi Pembelajaran", "Catatan", "Foto Dokumentasi", "Tanda Tangan Guru"]],
-      body: o.rows.map((j, i) => [
-        i + 1, hariTanggal(j.date), jamRange(j.schedule), j.class, j.teacher,
-        j.material || "-", j.notes || "-", j.photo ? "Ada" : "-", j.signature ? "Ada" : "-",
-      ]),
-      styles: BODY_TXT,
-      bodyStyles: BODY_CENTER,
-      headStyles: HEAD_TXT,
-      columnStyles: GURU_COLS,
-      theme: "grid",
-    });
+    guruDetailPages(doc, o.rows.map((j, i) => [
+      i + 1, hariTanggal(j.date), jamRange(j.schedule), j.class, j.teacher,
+      j.material || "-", j.notes || "-", j.photo ? "Ada" : "-", j.signature ? "Ada" : "-",
+    ]), null, y + 4);
     ttdPdf(doc, (doc as any).lastAutoTable.finalY + 8, "Guru Mata Pelajaran", guruName, principal, dateStr);
     footers(doc);
     return doc.output("blob");
@@ -805,56 +819,24 @@ export async function buildRekapPdfAsync(o: RekapOpts & { rows: FeedEntry[] }): 
   if (o.periode === "bulanan") {
     // Bulanan guru = FULL DETAIL sebulan penuh + TOTAL di akhir (kontrak §3E).
     const mediaB = await buildGuruMedia(o.rows, { onProgress: o.onProgress });
-    autoTable(doc, {
-      startY: y + 4,
-      margin: TABLE_MARGIN,
-      head: [["No", "Hari & Tanggal", "Jam Pelaksanaan", "Kelas", "Nama Guru", "Materi Pembelajaran", "Catatan", "Foto Dokumentasi", "Tanda Tangan Guru"]],
-      body: [
-        ...o.rows.map((j, i) => [
-          i + 1, hariTanggal(j.date), jamRange(j.schedule), j.class, j.teacher,
-          j.material || "-", j.notes || "-",
-          mediaB[i].foto ? " " : j.photo ? "Ada" : "-", mediaB[i].ttd ? " " : j.signature ? "Ada" : "-",
-        ]),
-        [`TOTAL (${o.rows.length} jurnal)`, "", "", "", "", "", "", "", ""],
-      ],
-      styles: { ...BODY_TXT, minCellHeight: 24 },
-      bodyStyles: BODY_CENTER,
-      headStyles: HEAD_TXT,
-      theme: "grid",
-      columnStyles: GURU_COLS,
-      didDrawCell: (d: any) => {
-        if (d.section !== "body") return;
-        const m = d.column.index === 7 ? mediaB[d.row.index]?.foto : d.column.index === 8 ? mediaB[d.row.index]?.ttd : null;
-        if (!m) return;
-        drawContain(doc, m, d.cell.x + 2, d.cell.y + 2, d.cell.width - 4, d.cell.height - 4);
-      },
-    });
+    guruDetailPages(doc, [
+      ...o.rows.map((j, i) => [
+        i + 1, hariTanggal(j.date), jamRange(j.schedule), j.class, j.teacher,
+        j.material || "-", j.notes || "-",
+        mediaB[i].foto ? " " : j.photo ? "Ada" : "-", mediaB[i].ttd ? " " : j.signature ? "Ada" : "-",
+      ]),
+      [`TOTAL (${o.rows.length} jurnal)`, "", "", "", "", "", "", "", ""],
+    ], mediaB, y + 4);
     ttdPdf(doc, (doc as any).lastAutoTable.finalY + 8, "Guru Mata Pelajaran", guruName, principal, dateStr);
     footers(doc);
     return doc.output("blob");
   }
   const media = await buildGuruMedia(o.rows, { onProgress: o.onProgress });
-  autoTable(doc, {
-    startY: y + 4,
-    margin: TABLE_MARGIN,
-    head: [["No", "Hari & Tanggal", "Jam Pelaksanaan", "Kelas", "Nama Guru", "Materi Pembelajaran", "Catatan", "Foto Dokumentasi", "Tanda Tangan Guru"]],
-    body: o.rows.map((j, i) => [
-      i + 1, hariTanggal(j.date), jamRange(j.schedule), j.class, j.teacher,
-      j.material || "-", j.notes || "-",
-      media[i].foto ? " " : j.photo ? "Ada" : "-", media[i].ttd ? " " : j.signature ? "Ada" : "-",
-    ]),
-    styles: { ...BODY_TXT, minCellHeight: 24 },
-    bodyStyles: BODY_CENTER,
-    headStyles: HEAD_TXT,
-    theme: "grid",
-    columnStyles: GURU_COLS,
-    didDrawCell: (d: any) => {
-      if (d.section !== "body") return;
-      const m = d.column.index === 7 ? media[d.row.index]?.foto : d.column.index === 8 ? media[d.row.index]?.ttd : null;
-      if (!m) return;
-      drawContain(doc, m, d.cell.x + 2, d.cell.y + 2, d.cell.width - 4, d.cell.height - 4);
-    },
-  });
+  guruDetailPages(doc, o.rows.map((j, i) => [
+    i + 1, hariTanggal(j.date), jamRange(j.schedule), j.class, j.teacher,
+    j.material || "-", j.notes || "-",
+    media[i].foto ? " " : j.photo ? "Ada" : "-", media[i].ttd ? " " : j.signature ? "Ada" : "-",
+  ]), media, y + 4);
   ttdPdf(doc, (doc as any).lastAutoTable.finalY + 8, "Guru Mata Pelajaran", guruName, principal, dateStr);
   footers(doc);
   return doc.output("blob");
