@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { BookOpenCheck, LayoutDashboard, Users, GraduationCap, School, BookOpen, Clock, FileText, KeyRound, Download, Settings, History, PenLine, BarChart3, LogOut } from "lucide-react";
 import { cn } from "@/src/lib/utils";
 import { useAuth } from "@/src/lib/auth";
@@ -56,7 +57,8 @@ export function Sidebar({ role }: { role: Role }) {
 }
 
 export function Topbar({ title, hint }: { title: string; hint?: string }) {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const r = useRouter();
   return (
     <header className="sticky top-0 z-20 border-b border-slate-100 bg-paper/85 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3.5 sm:px-6">
@@ -66,6 +68,15 @@ export function Topbar({ title, hint }: { title: string; hint?: string }) {
           {hint && <p className="truncate text-xs text-slate-500">{hint}</p>}
         </div>
         {user && <span className="hidden rounded-full bg-white px-3 py-1.5 text-xs font-semibold shadow-soft sm:block">{user.name}</span>}
+        {user && (
+          <button
+            onClick={() => { logout(); toast.success("Berhasil keluar."); r.replace("/login"); }}
+            title="Keluar" aria-label="Keluar"
+            className="grid size-9 shrink-0 place-items-center rounded-xl bg-white text-slate-500 shadow-soft transition hover:text-rose-600 lg:hidden"
+          >
+            <LogOut size={17} />
+          </button>
+        )}
       </div>
     </header>
   );
