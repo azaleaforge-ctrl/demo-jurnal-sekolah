@@ -4,7 +4,10 @@
 
 :root { color-scheme: light; }
 html { -webkit-tap-highlight-color: transparent; }
+/* Kunci overflow horizontal: tabel/scroll-x terkunci di wadahnya, body tak ikut geser */
+html, body { overflow-x: clip; max-width: 100%; }
 body { font-family: "Plus Jakarta Sans", system-ui, sans-serif; background: #F6F7FB; }
+img, video, canvas { max-width: 100%; }
 .font-display { font-family: "Sora", "Plus Jakarta Sans", sans-serif; }
 
 @media print {

@@ -84,7 +84,8 @@
 │   ├── teacher_id: string
 │   ├── class_id: string
 │   ├── subject_id: string
-│   ├── schedule_id: string (slot/shift MENGAJAR guru — bukan sesi siswa)
+│   ├── schedule_id: string (slot MULAI mengajar guru — bukan sesi siswa)
+│   ├── schedule_end_id: string nullable (slot SELESAI pasangan; kosong untuk data lama)
 │   ├── material_id: string (opsional)
 │   ├── custom_material: string (opsional)
 │   ├── notes: text
@@ -162,7 +163,8 @@
 * `GET /schedules` - Mengambil daftar slot jam mengajar guru.
 * `GET /students?class_id={id}` - Mengambil SELURUH siswa satu kelas (daftar absensi jurnal — tanpa filter jam).
 * `POST /journals` - Field:
-  * `class_id, subject_id, schedule_id, date, semester` - required, exists (`schedule_id` = slot mengajar guru).
+  * `class_id, subject_id, schedule_id, date, semester` - required, exists (`schedule_id` = slot MULAI mengajar guru).
+  * `schedule_end_id` - nullable, exists (`schedules`), slot SELESAI pasangan; wajib > mulai (bandingkan `order`, fallback `time`) bila terisi.
   * `material_id` (nullable, exists) **xor** `custom_material` (nullable, string) — minimal salah satu terisi.
   * `notes` - required, string.
   * `photo` - required, image (jpg/jpeg/png), max 5120 KB (frontend sudah auto-compress + batasi sisi panjang 1280px, lihat §4.7).
@@ -192,6 +194,7 @@
    * Aturan kondisional inti: `'leave_note' => 'required_if:teacher_status,izin'`, `'sick_letter' => 'required_if:teacher_status,sakit|file|mimes:pdf,jpg,jpeg,png|max:2048'`.
    * `material_id`/`custom_material`: `required_without` silang agar materi selalu terisi salah satunya.
    * `attendances.*.student_id` harus `exists` dan `distinct`; jumlahnya harus sama dengan jumlah siswa kelas (cegah absensi setengah); tidak ada validasi jam di sisi siswa.
+   * `schedule_end_id` (bila terisi): harus `different:schedule_id` dan urutannya setelah `schedule_id` (cek `order`, fallback `time`); frontend wizard memakai 2 dropdown (Jam Mulai + Jam Selesai) dengan validasi yang sama.
 2. **Rule Anti-TTD-Kosong (`NotBlankSignature`):**
    * Kanvas kosong yang di-`toDataURL()` menghasilkan PNG bervolume kecil & seragam — Rule menolak `signature_data` yang: bukan data-URL PNG valid, **atau** panjang base64 di bawah ambang batas (contoh `< 2500` karakter), **atau** gagal `base64_decode`.
    * Kontrak frontend (hasil perbaikan bug "sudah digambar tapi terbaca kosong"): TTD digambar → dikunci via tombol **"Simpan TTD"** eksplisit → dinormalisasi ke kanvas tetap **600×200** (bg putih, contain, center) → data-URL disimpan di state → data-URL itulah yang dikirim sebagai `signature_data` (bukan baca kanvas live saat submit, karena kanvas di-unmount saat wizard pindah langkah). Respons `422 { errors: { signature_data: [...] } }` agar frontend menampilkan shake + toast yang tepat.

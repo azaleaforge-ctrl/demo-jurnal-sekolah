@@ -37,3 +37,47 @@ export function slotLabel(docs: SlotDoc[], id?: string): string {
   if (!id) return "";
   return pairSlots(docs).find((o) => o.id === id)?.label || docs.find((d) => d.id === id)?.name || "";
 }
+
+// --- Jam ganda: schedule_id (MULAI) + schedule_end_id (SELESAI, nullable legacy) ---
+
+export type SlotItem = { id: string; label: string; order: number };
+
+// Dropdown Jam Mulai: kind=mulai + dok lama (nama rentang, end tidak wajib bila ini dipilih).
+export function mulaiOptions(docs: SlotDoc[]): SlotItem[] {
+  return docs
+    .filter((d) => !d.kind || d.kind === "mulai")
+    .map((d) => ({
+      id: d.id,
+      label: d.kind ? `Jam ${num(d.order)} mulai (${d.time || "?"})` : d.name || "Jam",
+      order: num(d.order),
+    }))
+    .sort((a, b) => a.order - b.order);
+}
+
+// Dropdown Jam Selesai: kind=selesai saja.
+export function selesaiOptions(docs: SlotDoc[]): SlotItem[] {
+  return docs
+    .filter((d) => d.kind === "selesai")
+    .map((d) => ({ id: d.id, label: `Jam ${num(d.order)} (${d.time || "?"})`, order: num(d.order) }))
+    .sort((a, b) => a.order - b.order);
+}
+
+// Selesai harus sesudah mulai: bandingkan order, fallback string time.
+export function compareSlots(a?: SlotDoc, b?: SlotDoc): number {
+  const oa = num(a?.order);
+  const ob = num(b?.order);
+  if (oa !== ob) return oa - ob;
+  return String(a?.time || "").localeCompare(String(b?.time || ""));
+}
+
+// Tampil "mulai - selesai" di preview/feed/riwayat/export; toleran legacy tanpa end.
+export function rangeLabel(docs: SlotDoc[], mulaiId?: string, endId?: string): string {
+  const m = docs.find((d) => d.id === mulaiId);
+  if (!m) return "";
+  if (!m.kind) return m.name || "";
+  const t = (d?: SlotDoc) => d?.time || d?.name || "?";
+  if (!endId) return `${t(m)} (mulai)`;
+  const s = docs.find((d) => d.id === endId);
+  if (!s) return t(m);
+  return `${t(m)} - ${t(s)}`;
+}

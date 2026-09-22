@@ -30,9 +30,9 @@ export default function GuruHome() {
           <h2 className="flex items-center gap-2 font-display font-bold"><Clock size={17} /> Terakhir diisi</h2>
           <div className="mt-2 space-y-2">
             {journals.map((j) => (
-              <div key={j.id} className="flex items-center justify-between rounded-xl bg-slate-50 px-3.5 py-2.5 text-sm">
-                <div><p className="font-semibold">{j.subject} · {j.class}</p><p className="text-xs text-slate-500">{j.date} · {j.material}</p></div>
-                <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700">Tersimpan</span>
+              <div key={j.id} className="flex items-center justify-between gap-2 rounded-xl bg-slate-50 px-3.5 py-2.5 text-sm">
+                <div className="min-w-0"><p className="truncate font-semibold">{j.subject} · {j.class}</p><p className="truncate text-xs text-slate-500">{j.date} · {j.material}</p></div>
+                <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700">Tersimpan</span>
               </div>
             ))}
           </div>

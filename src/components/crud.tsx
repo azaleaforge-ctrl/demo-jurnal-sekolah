@@ -85,9 +85,9 @@ export function Crud<T extends { id: string }>({
           <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Cari ${title.toLowerCase()}…`} className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100" />
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {toolbarExtra}
-          <Button onClick={() => { setEdit({}); setOpen(true); }}><Plus size={16} /> Tambah</Button>
+          <Button className="max-sm:w-full" onClick={() => { setEdit({}); setOpen(true); }}><Plus size={16} /> Tambah</Button>
         </div>
       </div>
       {loading ? (
@@ -103,8 +103,8 @@ export function Crud<T extends { id: string }>({
               {cols.map((c) => <td key={c.key} className="px-4 py-3">{c.render ? c.render(r) : String((r as any)[c.key])}</td>)}
               <td className="px-4 py-3">
                 <div className="flex gap-1.5">
-                  <button onClick={() => { setEdit(r); setOpen(true); }} className="grid size-8 place-items-center rounded-lg text-slate-500 hover:bg-brand-50 hover:text-brand-600" aria-label="Ubah"><Pencil size={15} /></button>
-                  <button onClick={() => setDel(r)} className="grid size-8 place-items-center rounded-lg text-slate-500 hover:bg-rose-50 hover:text-rose-600" aria-label="Hapus"><Trash2 size={15} /></button>
+                  <button onClick={() => { setEdit(r); setOpen(true); }} className="grid size-10 place-items-center rounded-lg text-slate-500 hover:bg-brand-50 hover:text-brand-600 sm:size-8" aria-label="Ubah"><Pencil size={15} /></button>
+                  <button onClick={() => setDel(r)} className="grid size-10 place-items-center rounded-lg text-slate-500 hover:bg-rose-50 hover:text-rose-600 sm:size-8" aria-label="Hapus"><Trash2 size={15} /></button>
                 </div>
               </td>
             </tr>

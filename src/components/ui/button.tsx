@@ -10,5 +10,5 @@ export function Button({ className, variant = "primary", ...p }: React.ButtonHTM
       : variant === "outline"
       ? "border border-slate-200 bg-white hover:border-brand-500 hover:text-brand-600"
       : "hover:bg-slate-100 text-slate-700";
-  return <button {...p} className={cn("inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition active:scale-[.98] disabled:cursor-not-allowed", v, className)} />;
+  return <button {...p} className={cn("inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition active:scale-[.98] disabled:cursor-not-allowed sm:min-h-0", v, className)} />;
 }

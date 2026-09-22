@@ -98,10 +98,10 @@ export function ImportExcel<T extends Record<string, any>>({
 
   return (
     <>
-      <Button variant="outline" onClick={download}>
+      <Button variant="outline" className="max-sm:flex-1" onClick={download}>
         <Download size={15} /> Template
       </Button>
-      <Button variant="outline" onClick={() => inputRef.current?.click()}>
+      <Button variant="outline" className="max-sm:flex-1" onClick={() => inputRef.current?.click()}>
         <Upload size={15} /> Upload Excel/CSV
       </Button>
       <input

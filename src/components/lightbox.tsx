@@ -20,16 +20,16 @@ export function Lightbox({ src, label, onClose }: { src: string; label: string; 
         />
       </div>
       <div className="mt-4 flex items-center gap-2">
-        <button onClick={() => setZoom((z) => Math.max(1, z - 0.5))} className="grid size-10 place-items-center rounded-xl border border-slate-200" title="Perkecil" aria-label="Perkecil">
+        <button onClick={() => setZoom((z) => Math.max(1, z - 0.5))} className="grid size-11 shrink-0 place-items-center rounded-xl border border-slate-200" title="Perkecil" aria-label="Perkecil">
           <ZoomOut size={17} />
         </button>
-        <button onClick={() => setZoom((z) => Math.min(2.5, z + 0.5))} className="grid size-10 place-items-center rounded-xl border border-slate-200" title="Perbesar" aria-label="Perbesar">
+        <button onClick={() => setZoom((z) => Math.min(2.5, z + 0.5))} className="grid size-11 shrink-0 place-items-center rounded-xl border border-slate-200" title="Perbesar" aria-label="Perbesar">
           <ZoomIn size={17} />
         </button>
-        <a href={src} download={label.replace(/\s+/g, "-").toLowerCase()} className={cn("inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-ink px-4 py-2.5 text-sm font-bold text-white")}>
+        <a href={src} download={label.replace(/\s+/g, "-").toLowerCase()} className={cn("inline-flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl bg-ink px-4 py-2.5 text-sm font-bold text-white")}>
           <Download size={15} /> Unduh
         </a>
-        <button onClick={onClose} className="grid size-10 place-items-center rounded-xl bg-slate-100" title="Tutup" aria-label="Tutup">
+        <button onClick={onClose} className="grid size-11 shrink-0 place-items-center rounded-xl bg-slate-100" title="Tutup" aria-label="Tutup">
           <X size={17} />
         </button>
       </div>

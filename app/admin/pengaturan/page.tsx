@@ -90,7 +90,7 @@ export default function PengaturanPage() {
             <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1.5">
               {(["Ganjil", "Genap"] as const).map((s) => (
                 <button key={s} onClick={() => { setSmt(s); }} disabled={loading}
-                  className={cn("rounded-xl py-2.5 text-sm font-bold transition", smt === s ? "bg-ink text-white shadow-soft" : "text-slate-500 hover:text-ink")}>
+                  className={cn("min-h-[44px] rounded-xl py-2.5 text-sm font-bold transition", smt === s ? "bg-ink text-white shadow-soft" : "text-slate-500 hover:text-ink")}>
                   {s}
                 </button>
               ))}

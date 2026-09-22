@@ -24,9 +24,9 @@ function JamTable({ kind, title, rows, loading, onAdd, onEdit, onDel }: {
 }) {
   return (
     <Card>
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-display font-bold">{title}</h2>
-        <Button onClick={onAdd}><Plus size={15} /> Jam {kind === "mulai" ? "Mulai" : "Selesai"}</Button>
+        <Button className="max-sm:w-full" onClick={onAdd}><Plus size={15} /> Jam {kind === "mulai" ? "Mulai" : "Selesai"}</Button>
       </div>
       <div className="mt-3">
         {loading ? (
@@ -42,8 +42,8 @@ function JamTable({ kind, title, rows, loading, onAdd, onEdit, onDel }: {
                 <td className="px-4 py-3 text-slate-500">{r.name}{!r.kind && <Badge tone="amber">lama</Badge>}</td>
                 <td className="px-4 py-3">
                   <div className="flex gap-1.5">
-                    <button onClick={() => onEdit(r)} className="grid size-8 place-items-center rounded-lg text-slate-500 hover:bg-brand-50 hover:text-brand-600" aria-label="Ubah"><Pencil size={15} /></button>
-                    <button onClick={() => onDel(r)} className="grid size-8 place-items-center rounded-lg text-slate-500 hover:bg-rose-50 hover:text-rose-600" aria-label="Hapus"><Trash2 size={15} /></button>
+                    <button onClick={() => onEdit(r)} className="grid size-10 place-items-center rounded-lg text-slate-500 hover:bg-brand-50 hover:text-brand-600 sm:size-8" aria-label="Ubah"><Pencil size={15} /></button>
+                    <button onClick={() => onDel(r)} className="grid size-10 place-items-center rounded-lg text-slate-500 hover:bg-rose-50 hover:text-rose-600 sm:size-8" aria-label="Hapus"><Trash2 size={15} /></button>
                   </div>
                 </td>
               </tr>

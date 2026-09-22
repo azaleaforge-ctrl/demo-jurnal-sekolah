@@ -95,11 +95,11 @@ export default function KepsekPage() {
         <div className="mt-4 grid gap-3 lg:grid-cols-2">
           <Card>
             <h2 className="font-display font-bold">Tren kehadiran harian</h2>
-            <div className="mt-2 h-64">
+            <div className="mt-2 h-56 text-xs sm:h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={summary?.trend || []}>
-                  <XAxis dataKey="tanggal" fontSize={12} />
-                  <YAxis fontSize={12} />
+                <BarChart data={summary?.trend || []} margin={{ left: -12, right: 4 }}>
+                  <XAxis dataKey="tanggal" fontSize={11} />
+                  <YAxis fontSize={11} />
                   <Tooltip />
                   <Bar dataKey="hadir" fill="#2E5BFF" radius={[6, 6, 0, 0]} />
                   <Bar dataKey="sakit" fill="#F5B83D" radius={[6, 6, 0, 0]} />
@@ -111,13 +111,13 @@ export default function KepsekPage() {
           </Card>
           <Card>
             <h2 className="font-display font-bold">Komposisi status</h2>
-            <div className="mt-2 h-64">
+            <div className="mt-2 h-56 text-xs sm:h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie data={summary?.siswaPie || []} dataKey="value" nameKey="name" outerRadius={90} label>
                     {(summary?.siswaPie || []).map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                   </Pie>
-                  <Tooltip /><Legend />
+                  <Tooltip /><Legend wrapperStyle={{ fontSize: 12 }} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -134,11 +134,11 @@ export default function KepsekPage() {
                 ))}
               </div>
             </div>
-            <div className="no-print flex gap-2">
-              <Button variant="outline" disabled={!!busy} onClick={() => exp("pdf")}>
+            <div className="no-print flex flex-wrap gap-2">
+              <Button variant="outline" className="max-sm:flex-1" disabled={!!busy} onClick={() => exp("pdf")}>
                 {busy === "pdf" ? <Spinner /> : <Download size={15} />} PDF
               </Button>
-              <Button disabled={!!busy} onClick={() => exp("xls")}>
+              <Button className="max-sm:flex-1" disabled={!!busy} onClick={() => exp("xls")}>
                 {busy === "xls" ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />} {busy === "xls" ? "Memproses…" : "Excel"}
               </Button>
             </div>

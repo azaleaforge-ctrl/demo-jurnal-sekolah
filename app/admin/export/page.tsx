@@ -135,7 +135,7 @@ export default function ExportPage() {
                       {busy === id ? (
                         <div className="mt-3 space-y-2"><Skeleton className="h-2.5 w-full" /><Skeleton className="h-2.5 w-2/3" /></div>
                       ) : (
-                        <Button className="mt-3" disabled={!!busy} onClick={() => run(c.format)}>
+                        <Button className="mt-3 w-full sm:w-auto" disabled={!!busy} onClick={() => run(c.format)}>
                           {busy ? <Spinner /> : <Download size={15} />} Unduh
                         </Button>
                       )}

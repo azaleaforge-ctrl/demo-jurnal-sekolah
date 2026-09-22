@@ -9,7 +9,7 @@ import { Badge, Empty, Skeleton } from "@/src/components/ui/misc";
 import { journals } from "@/src/lib/mock";
 import { Lightbox } from "@/src/components/lightbox";
 import { listDocs, useDirectory } from "@/src/lib/db";
-import { slotLabel } from "@/src/lib/slots";
+import { slotLabel, rangeLabel } from "@/src/lib/slots";
 import type { SavedJournal } from "../jurnal-baru/page";
 
 type Row = Omit<SavedJournal, "teacher"> & { teacher: string };
@@ -33,7 +33,7 @@ export default function RiwayatPage() {
       const seen = new Set(mine.map((m) => m.id));
       const clsName = (id?: string) => dir.classes.find((c) => c.id === id)?.name || "-";
       const subName = (id?: string) => dir.subjects.find((s) => s.id === id)?.name || "-";
-      const schName = (id?: string) => slotLabel(dir.schedules, id) || undefined;
+      const schName = (id?: string, endId?: string) => rangeLabel(dir.schedules, id, endId) || slotLabel(dir.schedules, id) || undefined;
       try {
         // Riwayat pribadi: journals where teacher_id = saya
         const js = user?.id
@@ -56,7 +56,7 @@ export default function RiwayatPage() {
               leave_note: j.leave_note, sick_letter_name: j.sick_letter_url ? String(j.sick_letter_url).split("/").pop() : undefined,
               sick_letter_note: j.sick_letter_note, stats,
               class_id: j.class_id, subject_id: j.subject_id, teacher_id: j.teacher_id,
-              schedule: schName(j.schedule_id), schedule_id: j.schedule_id, attendances: j.attendances,
+              schedule: schName(j.schedule_id, j.schedule_end_id), schedule_id: j.schedule_id, schedule_end_id: j.schedule_end_id, attendances: j.attendances,
             } as Row;
           });
         const fallback = mine.length || remote.length ? [] : journals.map((j) => ({

@@ -14,7 +14,7 @@ export function Modal({ open, onClose, title, children, danger, wide }: { open: 
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: 40, opacity: 0 }}
             transition={{ type: "spring", damping: 26, stiffness: 300 }}
-            className={wide ? "w-full max-w-3xl rounded-t-3xl bg-white p-6 sm:rounded-3xl" : "w-full max-w-md rounded-t-3xl bg-white p-6 sm:rounded-3xl"}
+            className={wide ? "max-h-[92dvh] w-full max-w-3xl overflow-y-auto overscroll-contain rounded-t-3xl bg-white p-5 sm:rounded-3xl sm:p-6" : "max-h-[92dvh] w-full max-w-md overflow-y-auto overscroll-contain rounded-t-3xl bg-white p-5 sm:rounded-3xl sm:p-6"}
           >
             <div className="flex items-center gap-3">
               {danger && <span className="grid size-10 place-items-center rounded-full bg-rose-100 text-rose-600"><AlertTriangle size={20} /></span>}

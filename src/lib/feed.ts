@@ -1,5 +1,6 @@
 import { journals, teachers as mockTeachers, classes as mockClasses, subjects as mockSubjects } from "./mock";
 import { listDocs, type Doc } from "./db";
+import { rangeLabel } from "./slots";
 
 // Satu sumber data demo: arsip wizard (localStorage) + mock, terurut terbaru.
 // Bila backend hidup, api.adminFeed() dipetakan ke bentuk yang sama via normalizeRemote().
@@ -25,6 +26,7 @@ export type FeedEntry = {
   sick_letter_note?: string;
   schedule?: string;
   schedule_id?: string;
+  schedule_end_id?: string;
   attendances?: { student_id: string; status: string }[];
   stats: { hadir: number; sakit: number; izin: number; alpha: number };
 };
@@ -81,6 +83,7 @@ export function normalizeRemote(r: any): FeedEntry {
     sick_letter_note: r.sick_letter_note,
     schedule: r.schedule ?? r.schedule_name,
     schedule_id: r.schedule_id,
+    schedule_end_id: r.schedule_end_id ?? r.schedule_end ?? null,
     attendances: r.attendances,
     stats: r.stats ?? r.attendance_summary ?? emptyStats(),
   };
@@ -89,12 +92,13 @@ export function normalizeRemote(r: any): FeedEntry {
 // Feed langsung dari Firestore: journals + agregasi student_attendances (aturan §4.6).
 // Firestore tanpa JOIN: ID dipetakan ke nama via direktori di memori.
 export async function getFeedFirestore(limitN = 100): Promise<FeedEntry[]> {
-  const [js, cls, sub, usr, mat] = await Promise.all([
+  const [js, cls, sub, usr, mat, sch] = await Promise.all([
     listDocs("journals", { order: ["created_at", "desc"], limitN }),
     listDocs("classes"),
     listDocs("subjects"),
     listDocs("users"),
     listDocs("materials"),
+    listDocs("schedules"),
   ]);
   const clsName = (id?: string) => cls.find((c) => c.id === id)?.name || "-";
   const subName = (id?: string) => sub.find((s) => s.id === id)?.name || "-";
@@ -120,11 +124,13 @@ export async function getFeedFirestore(limitN = 100): Promise<FeedEntry[]> {
       if (k in stats) stats[k]++;
     });
     const base = normalizeRemote(j);
+    const schedLabel = base.schedule || (j.schedule_id ? rangeLabel(sch, j.schedule_id, j.schedule_end_id) : "") || "-";
     return {
       ...base,
       teacher: base.teacher === "-" && j.teacher_id ? tchName(j.teacher_id) : base.teacher,
       class: base.class === "-" && j.class_id ? clsName(j.class_id) : base.class,
       subject: base.subject === "-" && j.subject_id ? subName(j.subject_id) : base.subject,
+      schedule: schedLabel,
       material: base.material || j.custom_material || matTitle(j.material_id) || "-",
       stats: l.length ? stats : base.stats,
       attendances: l.length ? l.map((a) => ({ student_id: a.student_id, status: String(a.status).toLowerCase() })) : base.attendances,

@@ -86,7 +86,7 @@ export default function SiswaPage() {
           ]}
           toolbarExtra={
             <>
-              <Button variant="outline" onClick={() => setKelasOpen(true)}><Plus size={15} /> Tambah Kelas</Button>
+              <Button variant="outline" className="max-sm:flex-1" onClick={() => setKelasOpen(true)}><Plus size={15} /> Tambah Kelas</Button>
               <ImportExcel<Draft>
                 templateUrl="/admin/students/template"
                 templateName="template-siswa.xlsx"

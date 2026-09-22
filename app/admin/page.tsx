@@ -118,11 +118,11 @@ export default function AdminHome() {
         <div className="mt-4 grid gap-3 lg:grid-cols-2">
           <Card>
             <h2 className="font-display font-bold">Tren kehadiran siswa harian</h2>
-            <div className="mt-2 h-64">
+            <div className="mt-2 h-56 text-xs sm:h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={summary?.trend || []}>
-                  <XAxis dataKey="tanggal" fontSize={12} />
-                  <YAxis fontSize={12} />
+                <BarChart data={summary?.trend || []} margin={{ left: -12, right: 4 }}>
+                  <XAxis dataKey="tanggal" fontSize={11} />
+                  <YAxis fontSize={11} />
                   <Tooltip />
                   <Bar dataKey="hadir" fill="#2E5BFF" radius={[6, 6, 0, 0]} />
                   <Bar dataKey="sakit" fill="#F5B83D" radius={[6, 6, 0, 0]} />
@@ -135,26 +135,26 @@ export default function AdminHome() {
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
             <Card>
               <h2 className="font-display font-bold">Status guru</h2>
-              <div className="mt-2 h-64">
+              <div className="mt-2 h-56 text-xs sm:h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie data={summary?.guruPie || []} dataKey="value" nameKey="name" outerRadius={80} label>
                       {(summary?.guruPie || []).map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                     </Pie>
-                    <Tooltip /><Legend />
+                    <Tooltip /><Legend wrapperStyle={{ fontSize: 12 }} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
             </Card>
             <Card>
               <h2 className="font-display font-bold">Status siswa</h2>
-              <div className="mt-2 h-64">
+              <div className="mt-2 h-56 text-xs sm:h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie data={summary?.siswaPie || []} dataKey="value" nameKey="name" outerRadius={80} label>
                       {(summary?.siswaPie || []).map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                     </Pie>
-                    <Tooltip /><Legend />
+                    <Tooltip /><Legend wrapperStyle={{ fontSize: 12 }} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>

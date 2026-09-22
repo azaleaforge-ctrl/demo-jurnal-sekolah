@@ -132,9 +132,9 @@ export default function AkunPage() {
                   <td className="px-4 py-3"><Badge tone={roleTone(r.role) as any}>{r.role}</Badge></td>
                   <td className="px-4 py-3">
                     <div className="flex gap-1.5">
-                      <button onClick={() => { setEdit(r); setEditForm({ name: r.name, email: r.email, role: r.role }); }} className="grid size-8 place-items-center rounded-lg text-slate-500 hover:bg-brand-50 hover:text-brand-600" aria-label="Ubah akun"><Pencil size={15} /></button>
-                      <button onClick={() => { setPw(r); setNewPw(""); }} className="grid size-8 place-items-center rounded-lg text-slate-500 hover:bg-brand-50 hover:text-brand-600" aria-label="Ubah password"><KeyRound size={15} /></button>
-                      <button onClick={() => setDel(r)} className="grid size-8 place-items-center rounded-lg text-slate-500 hover:bg-rose-50 hover:text-rose-600" aria-label="Hapus"><Trash2 size={15} /></button>
+                      <button onClick={() => { setEdit(r); setEditForm({ name: r.name, email: r.email, role: r.role }); }} className="grid size-10 place-items-center rounded-lg text-slate-500 hover:bg-brand-50 hover:text-brand-600 sm:size-8" aria-label="Ubah akun"><Pencil size={15} /></button>
+                      <button onClick={() => { setPw(r); setNewPw(""); }} className="grid size-10 place-items-center rounded-lg text-slate-500 hover:bg-brand-50 hover:text-brand-600 sm:size-8" aria-label="Ubah password"><KeyRound size={15} /></button>
+                      <button onClick={() => setDel(r)} className="grid size-10 place-items-center rounded-lg text-slate-500 hover:bg-rose-50 hover:text-rose-600 sm:size-8" aria-label="Hapus"><Trash2 size={15} /></button>
                     </div>
                   </td>
                 </tr>

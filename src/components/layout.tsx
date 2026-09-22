@@ -2,7 +2,9 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { BookOpenCheck, LayoutDashboard, Users, GraduationCap, School, BookOpen, Clock, FileText, KeyRound, Download, Settings, History, PenLine, BarChart3, LogOut } from "lucide-react";
+import { BookOpenCheck, LayoutDashboard, Users, GraduationCap, School, BookOpen, Clock, FileText, KeyRound, Download, Settings, History, PenLine, BarChart3, LogOut, MoreHorizontal } from "lucide-react";
+import { useState } from "react";
+import { Modal } from "@/src/components/ui/modal";
 import { cn } from "@/src/lib/utils";
 import { useAuth } from "@/src/lib/auth";
 import type { Role } from "@/src/lib/mock";
@@ -72,7 +74,7 @@ export function Topbar({ title, hint }: { title: string; hint?: string }) {
           <button
             onClick={() => { logout(); toast.success("Berhasil keluar."); r.replace("/login"); }}
             title="Keluar" aria-label="Keluar"
-            className="grid size-9 shrink-0 place-items-center rounded-xl bg-white text-slate-500 shadow-soft transition hover:text-rose-600 lg:hidden"
+            className="grid size-11 shrink-0 place-items-center rounded-xl bg-white text-slate-500 shadow-soft transition hover:text-rose-600 lg:hidden"
           >
             <LogOut size={17} />
           </button>
@@ -84,17 +86,39 @@ export function Topbar({ title, hint }: { title: string; hint?: string }) {
 
 export function BottomBar({ role }: { role: Role }) {
   const path = usePathname();
-  const items = menus[role].slice(0, 5);
+  const all = menus[role];
+  const [more, setMore] = useState(false);
+  // Paritas mobile: maksimal 4 item + "Lainnya" (bottom-sheet) agar semua aksi desktop tetap ada.
+  const shown = all.length > 5 ? all.slice(0, 4) : all;
+  const rest = all.length > 5 ? all.slice(4) : [];
+  const cols = shown.length + (rest.length ? 1 : 0);
+  const active = (href: string) => path === href || (href !== `/${role}` && path.startsWith(href));
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 backdrop-blur sm:hidden" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
-      <div className="grid" style={{ gridTemplateColumns: `repeat(${items.length},1fr)` }}>
-        {items.map((m) => (
-          <Link key={m.href} href={m.href} className={cn("flex flex-col items-center gap-1 py-2.5 text-[11px] font-semibold text-slate-400", path === m.href && "text-brand-600")}>
-            <m.icon size={20} />{m.label}
-          </Link>
-        ))}
-      </div>
-    </nav>
+    <>
+      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 backdrop-blur sm:hidden" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+        <div className="grid" style={{ gridTemplateColumns: `repeat(${cols},1fr)` }}>
+          {shown.map((m) => (
+            <Link key={m.href} href={m.href} className={cn("flex min-h-[56px] flex-col items-center justify-center gap-1 py-2 text-[11px] font-semibold text-slate-400", active(m.href) && "text-brand-600")}>
+              <m.icon size={20} />{m.label}
+            </Link>
+          ))}
+          {rest.length > 0 && (
+            <button onClick={() => setMore(true)} className={cn("flex min-h-[56px] flex-col items-center justify-center gap-1 py-2 text-[11px] font-semibold text-slate-400", rest.some((m) => active(m.href)) && "text-brand-600")}>
+              <MoreHorizontal size={20} />Lainnya
+            </button>
+          )}
+        </div>
+      </nav>
+      <Modal open={more} onClose={() => setMore(false)} title="Menu lainnya">
+        <div className="grid gap-1.5">
+          {rest.map((m) => (
+            <Link key={m.href} href={m.href} onClick={() => setMore(false)} className={cn("flex min-h-[48px] items-center gap-3 rounded-xl px-3.5 text-sm font-semibold text-slate-600 hover:bg-slate-50", active(m.href) && "bg-brand-50 text-brand-600")}>
+              <m.icon size={18} />{m.label}
+            </Link>
+          ))}
+        </div>
+      </Modal>
+    </>
   );
 }
 
