@@ -210,7 +210,7 @@ function bodyRow(ws: ExcelJS.Worksheet, n: number, vals: (string | number)[], bo
     c.value = v;
     if (bold) c.font = { bold: true };
     c.border = allBorder;
-    c.alignment = { vertical: "middle", wrapText: true };
+    c.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
   });
   if (height) row.height = height;
 }
@@ -245,16 +245,18 @@ function printSetup(ws: ExcelJS.Worksheet) {
   ws.pageSetup = { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 };
 }
 
-// Embed gambar contain ke sel (kolom lebar ~pxCol px, tinggi baris pxH px).
-function embedCell(wb: ExcelJS.Workbook, ws: ExcelJS.Worksheet, m: Media, col: number, row: number, pxCol: number, pxH: number) {
+// Embed gambar TEPAT di tengah sel: offset dari lebar kolom + tinggi baris aktual.
+function embedCell(wb: ExcelJS.Workbook, ws: ExcelJS.Worksheet, m: Media, col: number, row: number, pxCol: number, rowPt: number) {
   if (!m) return;
   const id = wb.addImage({ base64: m.dataUrl.split(",")[1], extension: m.ext });
+  const rowPx = rowPt * 96 / 72;
+  const pxH = rowPx - 8;
   const scale = Math.min(pxCol / m.w, pxH / m.h);
   const dw = Math.max(8, Math.floor(m.w * scale));
   const dh = Math.max(8, Math.floor(m.h * scale));
   const colW = pxCol || 1;
   ws.addImage(id, {
-    tl: { col: col + (colW - dw) / 2 / colW, row: row - 1 + 0.06 },
+    tl: { col: col + (colW - dw) / 2 / colW, row: row - 1 + (rowPx - dh) / 2 / rowPx },
     ext: { width: dw, height: dh },
   });
 }
@@ -282,8 +284,8 @@ export async function buildRekapExcel(o: RekapOpts & { rows: FeedEntry[] }): Pro
         j.material || "-", j.notes || "-",
         media[i].foto ? "" : j.photo ? "Ada" : "-", media[i].ttd ? "" : j.signature ? "Ada" : "-",
       ], false, 64);
-      embedCell(wb, ws, media[i].foto, 7, r, 108, 56);
-      embedCell(wb, ws, media[i].ttd, 8, r, 108, 56);
+      embedCell(wb, ws, media[i].foto, 7, r, 108, 64);
+      embedCell(wb, ws, media[i].ttd, 8, r, 108, 64);
     });
     ttdExcel(ws, 9 + o.rows.length, guruName, dateStr);
     ws.views = [{ state: "frozen", ySplit: 7 }];
@@ -399,7 +401,9 @@ const HEAD_TXT = {
   halign: "center" as const, valign: "middle" as const, fontStyle: "bold" as const,
   overflow: "linebreak" as const, fontSize: 8, minCellHeight: 14, ...GRID,
 };
-const BODY_TXT = { fontSize: 8, valign: "middle" as const, overflow: "linebreak" as const, ...GRID };
+const BODY_TXT = { fontSize: 8, halign: "center" as const, valign: "middle" as const, overflow: "linebreak" as const, ...GRID };
+// Semua sel body rata tengah (No s/d agregat) — ditegaskan lagi per tabel via bodyStyles.
+const BODY_CENTER = { halign: "center" as const, valign: "middle" as const };
 const TABLE_MARGIN = { left: 10, right: 10 };
 
 // Gambar contain ke dalam sel (didDrawCell, sinkron — media di-preload dulu).
@@ -435,6 +439,7 @@ export function buildRekapPdf(o: RekapOpts & { rows: FeedEntry[] }): Blob {
         j.material || "-", j.notes || "-", j.photo ? "Ada" : "-", j.signature ? "Ada" : "-",
       ]),
       styles: BODY_TXT,
+      bodyStyles: BODY_CENTER,
       headStyles: HEAD_TXT,
       columnStyles: GURU_COLS,
       theme: "grid",
@@ -463,6 +468,7 @@ export function buildRekapPdf(o: RekapOpts & { rows: FeedEntry[] }): Blob {
         at.status === "izin" ? "✓" : "", at.status === "alpha" ? "✓" : ""];
     })).map((r, i) => [i + 1, ...r.slice(1)]),
     styles: BODY_TXT,
+    bodyStyles: BODY_CENTER,
     headStyles: HEAD_TXT,
     theme: "grid",
     columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 38 }, 2: { cellWidth: 24 }, 3: { cellWidth: 24 }, 5: { cellWidth: 10 }, 6: { cellWidth: 10 }, 7: { cellWidth: 10 }, 8: { cellWidth: 10 } },
@@ -478,6 +484,7 @@ export function buildRekapPdf(o: RekapOpts & { rows: FeedEntry[] }): Blob {
         return [i + 1, hariTanggal(j.date), j.class, j.teacher, j.stats.hadir, j.stats.sakit, j.stats.izin, j.stats.alpha, t];
       }),
       styles: BODY_TXT,
+      bodyStyles: BODY_CENTER,
       headStyles: HEAD_TXT,
       theme: "grid",
       columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 38 }, 2: { cellWidth: 24 }, 3: { cellWidth: 30 }, 5: { cellWidth: 10 }, 6: { cellWidth: 10 }, 7: { cellWidth: 10 }, 8: { cellWidth: 14 } },
@@ -567,6 +574,7 @@ export async function buildRekapPdfAsync(o: RekapOpts & { rows: FeedEntry[] }): 
       media[i].foto ? " " : j.photo ? "Ada" : "-", media[i].ttd ? " " : j.signature ? "Ada" : "-",
     ]),
     styles: { ...BODY_TXT, minCellHeight: 24 },
+    bodyStyles: BODY_CENTER,
     headStyles: HEAD_TXT,
     theme: "grid",
     columnStyles: GURU_COLS,
