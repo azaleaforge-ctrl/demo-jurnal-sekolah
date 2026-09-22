@@ -17,7 +17,7 @@ import { appendFeed } from "@/src/lib/feed";
 import { Lightbox } from "@/src/components/lightbox";
 import { useDirectory, getSetting, mockSetting, commitBatch, uploadBlob, uploadFile, uploadPhotoJournal, uploadSignature, uploadSickLetter } from "@/src/lib/db";
 import { mulaiOptions, selesaiOptions, compareSlots, rangeLabel } from "@/src/lib/slots";
-import { todayID } from "@/src/lib/utils";
+import { todayID, byName } from "@/src/lib/utils";
 
 type TeacherStatus = "hadir" | "izin" | "sakit";
 type Status = "Hadir" | "Sakit" | "Izin" | "Alpha";
@@ -101,7 +101,7 @@ function Wizard() {
   const [zoom, setZoom] = useState<{ src: string; label: string } | null>(null);
   const sigRef = useRef<any>(null);
 
-  const siswa = useMemo(() => students.filter((s) => !classId || s.class_id === classId), [classId]);
+  const siswa = useMemo(() => students.filter((s) => !classId || s.class_id === classId).sort(byName()), [classId]);
   const matList = useMemo(() => materials.filter((m) => !subjectId || m.subject_id === subjectId), [subjectId]);
   const material = useManual ? customMat : matList.find((m) => m.id === materialId)?.title || customMat;
 

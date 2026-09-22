@@ -3,6 +3,7 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { API_BASE, endpoints } from "./api";
 import { school as fbSchool, students as fbStudents, classes as fbClasses, teachers as fbTeachers } from "./mock";
+import { byName, byNameStr } from "./utils";
 import type { FeedEntry } from "./feed";
 
 // Format formal acuan docs/referensi-laporan.jpg (§4.5): kop 3 baris + garis,
@@ -367,7 +368,7 @@ export async function buildRekapExcel(o: RekapOpts & { rows: FeedEntry[] }): Pro
         if (at.status === "hadir") g.h++; else if (at.status === "sakit") g.s++; else if (at.status === "izin") g.i++; else g.a++;
       });
     });
-    const perSiswaRows = [...perSiswa.values()].sort((a, b) => a.name.localeCompare(b.name));
+    const perSiswaRows = [...perSiswa.values()].sort(byName());
     if (o.periode === "bulanan") {
       // Tabel ANGKA rekap: No|NISN|Nama|H|S|I|A|%Hadir + TOTAL.
       headerRow(ws, r, ["No", "NISN", "Nama", "H", "S", "I", "A", "%Hadir", ""]);
@@ -391,9 +392,11 @@ export async function buildRekapExcel(o: RekapOpts & { rows: FeedEntry[] }): Pro
     let no = 1;
     const withAtt = o.rows.filter((j) => (j.attendances || []).length > 0);
     withAtt.forEach((j) => {
-      (j.attendances || []).forEach((at) => {
+      (j.attendances || [])
+        .map((at) => ({ at, nm: studentOf(at.student_id, dir.students)?.name || at.student_id }))
+        .sort((a, b) => byNameStr(a.nm, b.nm))
+        .forEach(({ at, nm }) => {
         const st = studentOf(at.student_id, dir.students);
-        const nm = st?.name || at.student_id;
         bodyRow(ws, r++, [no++, hariTanggal(j.date), j.class, st?.nisn || "-", nm,
           at.status === "hadir" ? "✓" : "", at.status === "sakit" ? "✓" : "",
           at.status === "izin" ? "✓" : "", at.status === "alpha" ? "✓" : ""], false, 20);
@@ -621,7 +624,7 @@ export function buildRekapPdf(o: RekapOpts & { rows: FeedEntry[] }): Blob {
       if (at.status === "hadir") g.h++; else if (at.status === "sakit") g.s++; else if (at.status === "izin") g.i++; else g.a++;
     });
   });
-  const perSiswaRows = [...perSiswa.values()].sort((a, b) => a.name.localeCompare(b.name));
+  const perSiswaRows = [...perSiswa.values()].sort(byName());
   if (o.periode === "bulanan") {
     // Tabel ANGKA rekap: No|NISN|Nama|H|S|I|A|%Hadir + TOTAL.
     const t = { h: 0, s: 0, i: 0, a: 0 };
@@ -648,9 +651,12 @@ export function buildRekapPdf(o: RekapOpts & { rows: FeedEntry[] }): Blob {
     startY: y + 4,
     margin: TABLE_MARGIN,
     head: [["No", "Hari & Tanggal", "Kelas", "NISN", "Nama", "H", "S", "I", "A"]],
-    body: o.rows.filter((j) => (j.attendances || []).length > 0).flatMap((j) => (j.attendances || []).map((at) => {
+    body: o.rows.filter((j) => (j.attendances || []).length > 0).flatMap((j) => (j.attendances || [])
+      .map((at) => ({ at, nm: studentOf(at.student_id, dir.students)?.name || at.student_id }))
+      .sort((a, b) => byNameStr(a.nm, b.nm))
+      .map(({ at, nm }) => {
       const st = studentOf(at.student_id, dir.students);
-      return ["", hariTanggal(j.date), j.class, st?.nisn || "-", st?.name || at.student_id,
+      return ["", hariTanggal(j.date), j.class, st?.nisn || "-", nm,
         at.status === "hadir" ? "✓" : "", at.status === "sakit" ? "✓" : "",
         at.status === "izin" ? "✓" : "", at.status === "alpha" ? "✓" : ""];
     })).map((r, i) => [i + 1, ...r.slice(1)]),

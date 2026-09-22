@@ -14,7 +14,7 @@ import { listDocs, useDirectory, getSetting, mockSetting, rewriteAttendances } f
 import { downloadRekap, type ExportDir } from "@/src/lib/export";
 import { type FeedEntry } from "@/src/lib/feed";
 import { slotLabel, rangeLabel } from "@/src/lib/slots";
-import { cn } from "@/src/lib/utils";
+import { cn, byName } from "@/src/lib/utils";
 import type { SavedJournal } from "../jurnal-baru/page";
 
 type Row = Omit<SavedJournal, "teacher"> & { teacher: string };
@@ -146,7 +146,7 @@ export default function RiwayatPage() {
         (j.class_id && s.class_id === j.class_id) ||
         (!j.class_id && dir.classes.find((c) => c.id === s.class_id)?.name === j.class));
     }
-    return [...list].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    return [...list].sort(byName());
   }
 
   function openEdit(j: Row) {
