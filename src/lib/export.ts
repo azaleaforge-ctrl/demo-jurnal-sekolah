@@ -388,6 +388,20 @@ function footers(doc: jsPDF) {
   }
 }
 
+// Satu definisi kolom + grid untuk SEMUA tabel guru 9-kolom (head & body selalu sejajar).
+const GURU_COLS = {
+  0: { cellWidth: 8 }, 1: { cellWidth: 30 }, 2: { cellWidth: 24 }, 3: { cellWidth: 22 },
+  4: { cellWidth: 30 }, 5: { cellWidth: 44 }, 6: { cellWidth: 44 }, 7: { cellWidth: 36 }, 8: { cellWidth: 39 },
+};
+// Garis grid penuh di SEMUA sel termasuk header (bukan hanya body).
+const GRID = { lineWidth: 0.3, lineColor: [70, 70, 70] as [number, number, number] };
+const HEAD_TXT = {
+  halign: "center" as const, valign: "middle" as const, fontStyle: "bold" as const,
+  overflow: "linebreak" as const, fontSize: 8, minCellHeight: 14, ...GRID,
+};
+const BODY_TXT = { fontSize: 8, valign: "middle" as const, overflow: "linebreak" as const, ...GRID };
+const TABLE_MARGIN = { left: 10, right: 10 };
+
 // Gambar contain ke dalam sel (didDrawCell, sinkron — media di-preload dulu).
 function drawContain(doc: jsPDF, m: Media, x: number, y: number, w: number, h: number) {
   if (!m) return;
@@ -414,13 +428,15 @@ export function buildRekapPdf(o: RekapOpts & { rows: FeedEntry[] }): Blob {
       ["Guru Pengampu", guruName], ["Periode", metaPeriode(o.dari, o.sampai)]);
     autoTable(doc, {
       startY: y + 4,
+      margin: TABLE_MARGIN,
       head: [["No", "Hari & Tanggal", "Jam Pelaksanaan", "Kelas", "Nama Guru", "Materi Pembelajaran", "Catatan", "Foto Dokumentasi", "Tanda Tangan Guru"]],
       body: o.rows.map((j, i) => [
         i + 1, hariTanggal(j.date), jamRange(j.schedule), j.class, j.teacher,
         j.material || "-", j.notes || "-", j.photo ? "Ada" : "-", j.signature ? "Ada" : "-",
       ]),
-      styles: { fontSize: 8, valign: "middle" },
-      headStyles: { fontStyle: "bold" },
+      styles: BODY_TXT,
+      headStyles: HEAD_TXT,
+      columnStyles: GURU_COLS,
       theme: "grid",
     });
     ttdPdf(doc, (doc as any).lastAutoTable.finalY + 8, guruName, dateStr);
@@ -438,6 +454,7 @@ export function buildRekapPdf(o: RekapOpts & { rows: FeedEntry[] }): Blob {
   const withAtt = o.rows.filter((j) => (j.attendances || []).length > 0);
   autoTable(doc, {
     startY: y + 4,
+    margin: TABLE_MARGIN,
     head: [["No", "Hari & Tanggal", "Kelas", "NISN", "Nama", "H", "S", "I", "A"]],
     body: withAtt.flatMap((j) => (j.attendances || []).map((at) => {
       const st = studentOf(at.student_id, dir.students);
@@ -445,8 +462,8 @@ export function buildRekapPdf(o: RekapOpts & { rows: FeedEntry[] }): Blob {
         at.status === "hadir" ? "✓" : "", at.status === "sakit" ? "✓" : "",
         at.status === "izin" ? "✓" : "", at.status === "alpha" ? "✓" : ""];
     })).map((r, i) => [i + 1, ...r.slice(1)]),
-    styles: { fontSize: 8, valign: "middle" },
-    headStyles: { fontStyle: "bold" },
+    styles: BODY_TXT,
+    headStyles: HEAD_TXT,
     theme: "grid",
     columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 38 }, 2: { cellWidth: 24 }, 3: { cellWidth: 24 }, 5: { cellWidth: 10 }, 6: { cellWidth: 10 }, 7: { cellWidth: 10 }, 8: { cellWidth: 10 } },
   });
@@ -454,14 +471,16 @@ export function buildRekapPdf(o: RekapOpts & { rows: FeedEntry[] }): Blob {
   if (rest.length) {
     autoTable(doc, {
       startY: (doc as any).lastAutoTable.finalY + 6,
+      margin: TABLE_MARGIN,
       head: [["No", "Hari & Tanggal", "Kelas", "Guru", "H", "S", "I", "A", "Total"]],
       body: rest.map((j, i) => {
         const t = j.stats.hadir + j.stats.sakit + j.stats.izin + j.stats.alpha;
         return [i + 1, hariTanggal(j.date), j.class, j.teacher, j.stats.hadir, j.stats.sakit, j.stats.izin, j.stats.alpha, t];
       }),
-      styles: { fontSize: 8, valign: "middle" },
-      headStyles: { fontStyle: "bold" },
+      styles: BODY_TXT,
+      headStyles: HEAD_TXT,
       theme: "grid",
+      columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 38 }, 2: { cellWidth: 24 }, 3: { cellWidth: 30 }, 5: { cellWidth: 10 }, 6: { cellWidth: 10 }, 7: { cellWidth: 10 }, 8: { cellWidth: 14 } },
     });
   }
   ttdPdf(doc, (doc as any).lastAutoTable.finalY + 8, guruName, dateStr);
@@ -540,19 +559,17 @@ export async function buildRekapPdfAsync(o: RekapOpts & { rows: FeedEntry[] }): 
   const media = await buildGuruMedia(o.rows);
   autoTable(doc, {
     startY: y + 4,
+    margin: TABLE_MARGIN,
     head: [["No", "Hari & Tanggal", "Jam Pelaksanaan", "Kelas", "Nama Guru", "Materi Pembelajaran", "Catatan", "Foto Dokumentasi", "Tanda Tangan Guru"]],
     body: o.rows.map((j, i) => [
       i + 1, hariTanggal(j.date), jamRange(j.schedule), j.class, j.teacher,
       j.material || "-", j.notes || "-",
       media[i].foto ? " " : j.photo ? "Ada" : "-", media[i].ttd ? " " : j.signature ? "Ada" : "-",
     ]),
-    styles: { fontSize: 8, valign: "middle", minCellHeight: 24 },
-    headStyles: { fontStyle: "bold" },
+    styles: { ...BODY_TXT, minCellHeight: 24 },
+    headStyles: HEAD_TXT,
     theme: "grid",
-    columnStyles: {
-      0: { cellWidth: 8 }, 1: { cellWidth: 30 }, 2: { cellWidth: 24 }, 3: { cellWidth: 22 },
-      4: { cellWidth: 30 }, 5: { cellWidth: 44 }, 6: { cellWidth: 44 }, 7: { cellWidth: 36 }, 8: { cellWidth: 39 },
-    },
+    columnStyles: GURU_COLS,
     didDrawCell: (d: any) => {
       if (d.section !== "body") return;
       const m = d.column.index === 7 ? media[d.row.index]?.foto : d.column.index === 8 ? media[d.row.index]?.ttd : null;
