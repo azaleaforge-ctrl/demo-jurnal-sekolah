@@ -7,7 +7,7 @@ import { AppShell } from "@/src/components/layout";
 import { Card, Stat } from "@/src/components/ui/card";
 import { Button } from "@/src/components/ui/button";
 import { Table } from "@/src/components/ui/table";
-import { Badge, Empty } from "@/src/components/ui/misc";
+import { Badge, Empty, Skeleton } from "@/src/components/ui/misc";
 import { Modal } from "@/src/components/ui/modal";
 import {
   backupFolder, backupStoragePath, backupZipName, buildBackupStats, buildMonthZip, canArchive,
@@ -68,26 +68,57 @@ export default function AdminBackupPage() {
     });
   }
 
-  // Realtime sejak awal bulan terpilih — histori tampil di sini, bukan di dashboard.
+  // Realtime SATU subscription per bulan terpilih (deps stabil: boolean + string).
+  // `dir` sengaja TIDAK masuk deps — useDirectory mengembalikan objek baru tiap
+  // render sehingga halaman resubscribe + remap + setSch tanpa henti (loop yang
+  // menahan router & mengaduk hitungan). Direktori dibaca via ref (selalu segar).
+  // Commit hanya saat emit tenang (settle) → hitungan selalu dari snapshot final,
+  // bukan dari chunk attendances parsial.
+  const dirRef = useRef(dir);
+  dirRef.current = dir;
+  const [feedReady, setFeedReady] = useState(false);
+  const pendingRef = useRef<FeedEntry[] | null>(null);
+  const settleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const firstPendRef = useRef(0);
   useEffect(() => {
     if (dir.loading) return;
     let on = true;
     let unsub: (() => void) | null = null;
+    setFeed([]);
+    setFeedReady(false);
+    pendingRef.current = null;
+    firstPendRef.current = 0;
+    const commit = () => {
+      if (!on || !pendingRef.current) return;
+      setFeed(pendingRef.current);
+      pendingRef.current = null;
+      firstPendRef.current = 0;
+      setFeedReady(true);
+    };
+    const schedule = (mapped: FeedEntry[]) => {
+      pendingRef.current = mapped;
+      if (!firstPendRef.current) firstPendRef.current = Date.now();
+      if (settleRef.current) clearTimeout(settleRef.current);
+      // Cap: paksa commit bila stream tak kunjung tenang (>2,5 dtk).
+      const wait = Date.now() - firstPendRef.current > 2500 ? 0 : 450;
+      settleRef.current = setTimeout(commit, wait);
+    };
     try {
       unsub = subscribeFeedJournals([["date", ">=", `${bulan}-01`]],
         (js, atts) => {
           if (!on) return;
-          const d = { classes: dir.classes, subjects: dir.subjects, users: dir.users, materials: dir.materials, schedules: dir.schedules };
-          setFeed(js.map((j) => mapJournalEntry(j, d, atts)).sort(byNewest));
+          const d = dirRef.current;
+          const dd = { classes: d.classes, subjects: d.subjects, users: d.users, materials: d.materials, schedules: d.schedules };
+          schedule(js.map((j) => mapJournalEntry(j, dd, atts)).sort(byNewest));
         },
-        () => { if (on) { setFeed(getSharedFeed()); toast.info("Mode demo — memakai data lokal."); } });
-    } catch { setFeed(getSharedFeed()); }
+        () => { if (on) { schedule(getSharedFeed()); toast.info("Mode demo — memakai data lokal."); } });
+    } catch { setFeed(getSharedFeed()); setFeedReady(true); }
     getSetting()
-      .then((s) => { if (s) setSch({ school_name: s.school_name, academic_year: s.academic_year, semester: s.semester.toLowerCase() === "genap" ? "Genap" : "Ganjil", principal_name: s.principal_name }); })
+      .then((s) => { if (s && on) setSch({ school_name: s.school_name, academic_year: s.academic_year, semester: s.semester.toLowerCase() === "genap" ? "Genap" : "Ganjil", principal_name: s.principal_name }); })
       .catch(() => {});
-    return () => { on = false; unsub?.(); };
+    return () => { on = false; unsub?.(); if (settleRef.current) clearTimeout(settleRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dir.loading, dir, bulan]);
+  }, [dir.loading, bulan]);
 
   const xdir: ExportDir = useMemo(() => ({
     school: { name: sch.school_name, academicYear: sch.academic_year, semester: sch.semester.toLowerCase() === "genap" ? "Genap" : "Ganjil", principalName: (sch as any).principal_name },
@@ -421,7 +452,7 @@ export default function AdminBackupPage() {
           {viewed && (
             <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-slate-50 px-4 py-3 text-sm">
               <span><b>{monthLabel(viewed.month)}</b> · {viewed.dari} – {viewed.sampai}</span>
-              <span className="text-slate-300">·</span><span><b>{stats?.journals ?? 0}</b> jurnal</span>
+              <span className="text-slate-300">·</span><span><b>{feedReady ? stats?.journals ?? 0 : "…"}</b> jurnal</span>
               {tempCount > 0 && <><span className="text-slate-300">·</span><span><b>{tempCount}</b> arsip sementara</span></>}
               {sealed
                 ? (sealStatus(sealed) === "final"
@@ -467,6 +498,14 @@ export default function AdminBackupPage() {
 
         {!viewed ? (
           <div className="mt-4"><Empty title="Pilih bulan lalu tekan Lihat" hint="Arsip hanya untuk bulan yang sudah selesai." /></div>
+        ) : !feedReady ? (
+          <div className="mt-4 space-y-3">
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <Skeleton className="h-24 w-full" /><Skeleton className="h-24 w-full" />
+              <Skeleton className="h-24 w-full" /><Skeleton className="h-24 w-full" />
+            </div>
+            <Skeleton className="h-40 w-full" />
+          </div>
         ) : !rows.length ? (
           <div className="mt-4"><Empty title="Tidak ada jurnal pada bulan ini" hint="Coba bulan lain dari jalan pintas di atas." /></div>
         ) : (

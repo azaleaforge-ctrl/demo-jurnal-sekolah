@@ -1,4 +1,4 @@
-import { countDocs, batchAdd, setDocTo, listDocs, addDocTo } from "./db";
+import { countDocs, batchAdd, setDocTo, listDocs, addDocTo, updateDocById } from "./db";
 import { slugEmail } from "./utils";
 
 export type SeedProgress = (done: number, total: number, label: string) => void;
@@ -125,7 +125,14 @@ export async function runSeed(onProgress: SeedProgress): Promise<{ skipped: stri
     items.push({ name: "Admin Sekolah", email: "admin@sekolah.id", role: "admin", password: randPw() });
     items.push({ name: "Drs. Haryanto", email: "kepsek@sekolah.id", role: "kepsek", password: randPw() });
     added.users = await batchAdd("users", items);
-  } else skipped.push("users");
+  } else {
+    skipped.push("users");
+    // Backfill gelar untuk data guru lama yang belum punya gelar.
+    const existing = await listDocs("users", { wheres: [["role", "==", "guru"]] });
+    for (const u of (existing as any[]).filter((x) => !x.gelar)) {
+      await updateDocById("users", u.id, { gelar: "S.Pd" });
+    }
+  }
   step("Akun pengguna");
 
   step("Selesai");

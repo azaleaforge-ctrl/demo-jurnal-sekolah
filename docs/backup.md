@@ -6,6 +6,18 @@ Urutan halaman Backup: filter/picker + tombol aksi → **Tabel Arsip Sementara**
 → pratinjau + **Tabel Backup Data Bulanan**. `journals` + `student_attendances`
 asli **tidak pernah dihapus**.
 
+## Stabilitas data halaman admin (Bug 1+2)
+
+- SATU subscription feed per bulan terpilih, deps stabil `[dir.loading, bulan]`
+  (`dir` objek baru tiap render → dulu resubscribe + remap + `setSch` tanpa
+  henti: main thread jenuh → navigasi nyangkut; stream chunk attendances
+  di-restart terus → hitungan 1/0/98 tidak konsisten). Direktori dibaca via
+  `dirRef` (selalu segar, tanpa resubscribe). Pola disamakan ke kepsek.
+- Commit hanya saat emit tenang 450 ms (cap paksa 2,5 dtk): pratinjau,
+  statistik, estimasi, dan tabel hitung dari **snapshot final**, bukan chunk
+  parsial. Sebelum commit pertama tampil skeleton (bukan "0"), default bulan
+  konsisten (`prevMonth`), tanpa query tambahan (ringan di HP).
+
 ## Tabel A — Arsip Sementara (`temp_archives/temp-YYYY-MM-<timestamp>`)
 
 Salinan (snapshot counts) bulan yang sedang dilihat — **boleh bulan berjalan**;
