@@ -104,7 +104,7 @@ export default function KepsekExportPage() {
     school: { name: sch.school_name, academicYear: sch.academic_year, semester: sch.semester.toLowerCase() === "genap" ? "Genap" : "Ganjil", principalName: (sch as any).principal_name },
     students: dir.students.map((s) => ({ id: s.id, nisn: s.nisn, name: s.name, class_id: s.class_id })),
     classes: dir.classes.map((c) => ({ id: c.id, name: c.name, wali: (c as any).wali })),
-    teachers: dir.users.filter((u) => u.role === "guru").map((t) => ({ id: t.id, name: t.name })),
+    teachers: dir.users.filter((u) => u.role === "guru").map((t) => ({ id: t.id, name: t.name, gelar: t.gelar })),
   }), [dir, sch]);
 
   const rows = useMemo(() => {

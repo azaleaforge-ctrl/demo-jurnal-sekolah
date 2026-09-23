@@ -12,8 +12,8 @@ import { Badge, Skeleton } from "@/src/components/ui/misc";
 import { Lightbox } from "@/src/components/lightbox";
 import { adminFeed } from "@/src/lib/api";
 import { getSharedFeed, mapJournalEntry, byNewest, normalizeRemote, summarizeFeed, type Summary, type FeedEntry } from "@/src/lib/feed";
-import { subscribeFeedJournals, useDirectory, type Doc } from "@/src/lib/db";
-import { todayID } from "@/src/lib/utils";
+import { subscribeFeedJournals, useDirectory, updateDocById, type Doc } from "@/src/lib/db";
+import { todayID, byName } from "@/src/lib/utils";
 
 const COLORS = ["#2E5BFF", "#F5B83D", "#38BDF8", "#F43F5E"];
 const gTone = (s: string | null) => (!s ? "slate" : s === "hadir" ? "green" : s === "izin" ? "blue" : "amber");
@@ -37,7 +37,26 @@ export default function KepsekHome() {
   const [zoom, setZoom] = useState<{ src: string; label: string } | null>(null);
   const feedRef = useRef<HTMLDivElement>(null);
 
-  const guruList = useMemo(() => dir.users.filter((u) => u.role === "guru"), [dir.users]);
+  const guruList = useMemo(() => [...dir.users.filter((u) => u.role === "guru")].sort(byName()), [dir.users]);
+  // "Nama, Gelar" (mis. Rina Marlina, S.Kom) — gelar dicari via teacher_id.
+  const gelarMap = useMemo(() => new Map(dir.users.filter((u) => u.role === "guru").map((u) => [u.id, String((u as any).gelar || "").trim()])), [dir.users]);
+  const namaGelarId = (id: string, name: string) => {
+    const g = gelarMap.get(id);
+    return g ? `${name}, ${g}` : name;
+  };
+  // Backfill gelar sekali per sesi: doc guru Firestore tanpa gelar → default "S.Pd".
+  const gelarFix = useRef(false);
+  useEffect(() => {
+    if (gelarFix.current || !dir.remote || dirLoading) return;
+    const missing = dir.users.filter((u) => u.role === "guru" && !String((u as any).gelar || "").trim());
+    if (!missing.length) return;
+    gelarFix.current = true;
+    (async () => {
+      for (const m of missing) {
+        try { await updateDocById("users", m.id, { gelar: "S.Pd" }); } catch {}
+      }
+    })();
+  }, [dir.remote, dirLoading, dir.users]);
   const fdir = useMemo(() => ({
     teachers: guruList.map((u) => ({ id: u.id, name: u.name, subject_ids: u.subject_ids })),
     classes: dir.classes.map((c) => ({ id: c.id, name: c.name })),
@@ -99,6 +118,9 @@ export default function KepsekHome() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, feed, tanggal, fdir]);
 
+  // Section per guru selalu A-Z (locale id, case-insensitive), tampil "Nama, Gelar".
+  const perTeacher = useMemo(() => [...(summary?.perTeacher || [])].sort(byName()), [summary]);
+
   const visible = useMemo(
     () => feed.filter((f) => f.date === tanggal && (!fClass || f.class === fClass || f.class_id === fClass) && (!fTeacher || f.teacher === fTeacher)).slice(0, 6),
     [feed, tanggal, fClass, fTeacher]
@@ -132,9 +154,9 @@ export default function KepsekHome() {
             <option value="">Semua kelas</option>
             {dir.classes.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
           </select>
-          <select value={fTeacher} onChange={(e) => setFTeacher(e.target.value)} aria-label="Filter guru" className="max-w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
+            <select value={fTeacher} onChange={(e) => setFTeacher(e.target.value)} aria-label="Filter guru" className="max-w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
             <option value="">Semua guru</option>
-            {guruList.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
+            {guruList.map((t) => <option key={t.id} value={t.name}>{namaGelarId(t.id, t.name)}</option>)}
           </select>
         </div>
 
@@ -212,9 +234,9 @@ export default function KepsekHome() {
             <h2 className="font-display font-bold">Status per guru — {tanggal}</h2>
             <div className="mt-3">
               <Table head={["Guru", "Mapel", "Status", "Aksi"]}>
-                {(summary?.perTeacher || []).map((t) => (
+                {perTeacher.map((t) => (
                   <tr key={t.teacher_id} className="hover:bg-slate-50/60">
-                    <td className="px-4 py-3 font-semibold">{t.name}</td>
+                    <td className="px-4 py-3 font-semibold"><span className="block max-w-[42vw] truncate sm:max-w-none" title={namaGelarId(t.teacher_id, t.name)}>{namaGelarId(t.teacher_id, t.name)}</span></td>
                     <td className="px-4 py-3 text-slate-500">{t.mapel}</td>
                     <td className="px-4 py-3">
                       {!t.submitted_today ? <Badge tone="slate">Belum isi</Badge> : <Badge tone={gTone(t.teacher_status) as any}>{t.teacher_status}</Badge>}

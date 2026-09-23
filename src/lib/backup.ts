@@ -1,6 +1,6 @@
 import JSZip from "jszip";
 import { deleteObject, ref } from "firebase/storage";
-import { buildRekapExcel, buildRekapPdfAsync, compareJournalNewest, filterRekap, type ExportDir, type RekapTipe } from "./export";
+import { buildRekapExcel, buildRekapPdfAsync, compareJournalNewest, filterRekap, teacherLabel, type ExportDir, type RekapTipe } from "./export";
 import type { FeedEntry } from "./feed";
 import { uploadBlob } from "./db";
 import { storage } from "./firebase";
@@ -48,10 +48,12 @@ export function prevMonth(month = currentMonth()): string {
 
 // Satu kesatuan per bulan dalam 1 file ZIP (client-side via jszip):
 //   Backup-{Bulan Tahun}.zip
-//   └── {Bulan Tahun}/Guru/{Nama Guru}/00-Rekap-Bulanan-{Nama}.xlsx (+ .pdf)
-//                        └─ Harian/Excel/{YYYY-MM-DD}-{Nama}.xlsx
-//                        └─ Harian/PDF/{YYYY-MM-DD}-{Nama}.pdf
+//   └── {Bulan Tahun}/Guru/{Nama, Gelar}/00-Rekap-Bulanan-{Nama, Gelar}.xlsx (+ .pdf)
+//                        └─ Harian/Excel/{YYYY-MM-DD}-{Nama, Gelar}.xlsx
+//                        └─ Harian/PDF/{YYYY-MM-DD}-{Nama, Gelar}.pdf
 //   └── {Bulan Tahun}/Siswa/{Nama Kelas}/... (pola sama)
+// Folder/file guru memakai label "Nama, Gelar" yang disanitasi (fallback nama
+// saja bila gelar kosong — tak pernah "undefined").
 // File bulanan ikut builder existing (boleh embed foto); file harian TANPA foto
 // embed (ringan — kolom jadi "Ada"). Hanya tanggal berdata yang dibuat
 // (hari kosong tetap tercakup agregat di file bulanan).
@@ -135,20 +137,24 @@ const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 
 type ZipJob = { path: string; run: () => Promise<Blob | Uint8Array> };
 
-type MonthGroup = { name: string; mine: FeedEntry[]; dates: string[] };
+type MonthGroup = { name: string; label: string; mine: FeedEntry[]; dates: string[] };
 
 // Kelompokkan isi bulan per guru & per kelas (dipakai zip + estimasi).
-// Grup nama A–Z (uniqNames, locale id); di dalam grup terbaru dulu
-// (compareJournalNewest) — tanpa grup/tanggal acak.
-function groupMonth(feed: FeedEntry[], dari: string, sampai: string) {
+// Grup diurut label A–Z (guru: "Nama, Gelar" via teacherLabel; kelas: nama);
+// di dalam grup terbaru dulu (compareJournalNewest) — tanpa grup/tanggal acak.
+// `name` tetap kunci mentah untuk pencocokan; `label` untuk tampil + path ZIP.
+function groupMonth(feed: FeedEntry[], dari: string, sampai: string, dir?: ExportDir) {
   const inMonth = feed.filter((f) => f.date >= dari && f.date <= sampai);
   const mk = (key: "teacher" | "class"): MonthGroup[] =>
-    uniqNames(inMonth.map((f) => f[key])).map((name) => {
-      const mine = inMonth
-        .filter((f) => (f[key] || "").trim() === name)
-        .sort(compareJournalNewest);
-      return { name, mine, dates: uniqNames(mine.map((f) => f.date)) };
-    });
+    uniqNames(inMonth.map((f) => f[key]))
+      .map((name) => {
+        const mine = inMonth
+          .filter((f) => (f[key] || "").trim() === name)
+          .sort(compareJournalNewest);
+        const label = key === "teacher" ? teacherLabel(dir, mine[0]?.teacher_id, name) : name;
+        return { name, label, mine, dates: uniqNames(mine.map((f) => f.date)) };
+      })
+      .sort((a, b) => a.label.localeCompare(b.label, "id", { sensitivity: "base" }));
   return { inMonth, teachers: mk("teacher"), classes: mk("class") };
 }
 
@@ -191,7 +197,7 @@ export async function buildMonthZip(o: {
 }): Promise<{ blob: Blob; files: number; teachers: number; classes: number }> {
   const { bulan, dari, sampai, rows, dir, onFile, shouldAbort } = o;
   const root = sanitizeName(backupFolder(bulan));
-  const g = groupMonth(rows, dari, sampai);
+  const g = groupMonth(rows, dari, sampai, dir);
   if (!g.inMonth.length || (!g.teachers.length && !g.classes.length)) throw new Error("Tidak ada data pada bulan ini.");
 
   const jobs: ZipJob[] = [];
@@ -204,7 +210,7 @@ export async function buildMonthZip(o: {
   const dailyPdf = (tipe: BackupTipe, day: FeedEntry[], d: string) => () =>
     buildRekapPdfAsync({ tipe, periode: "harian", dari: d, sampai: d, feed: day, dir, rows: day });
   const pushSet = (kind: "Guru" | "Siswa", tipe: BackupTipe, grp: MonthGroup) => {
-    const s = sanitizeName(grp.name);
+    const s = sanitizeName(grp.label);
     const base = `${root}/${kind}/${s}`;
     const m = monthly(tipe, grp.mine);
     jobs.push({ path: `${base}/00-Rekap-Bulanan-${s}.xlsx`, run: m.xlsx });

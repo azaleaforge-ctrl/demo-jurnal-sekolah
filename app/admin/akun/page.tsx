@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { KeyRound, Pencil, Search, Trash2, UserPlus } from "lucide-react";
 import { Guard, useAuth } from "@/src/lib/auth";
@@ -11,7 +11,7 @@ import { Modal, ConfirmModal } from "@/src/components/ui/modal";
 import { Badge, Empty, Skeleton } from "@/src/components/ui/misc";
 import { users as fbUsers, type Role } from "@/src/lib/mock";
 import { useCollection, updateDocById, removeDoc, getSetting, mockSetting } from "@/src/lib/db";
-import { slugEmail, cn } from "@/src/lib/utils";
+import { slugEmail, cn, byName } from "@/src/lib/utils";
 
 type Akun = { id: string; name: string; gelar?: string; email: string; role: Role; password?: string; emailAuto?: boolean; subject_ids?: string[] };
 const namaGelar = (r: { name: string; gelar?: string }) => (String(r.gelar || "").trim() ? `${r.name}, ${String(r.gelar).trim()}` : r.name);
@@ -41,10 +41,24 @@ export default function AkunPage() {
   }, []);
 
   const schoolSlug = sch.school_name.replace(/^SMK\s+/i, "");
-  const gurus = useMemo(() => rows.filter((r) => r.role === "guru"), [rows]);
+  // Semua daftar A-Z (locale id, case-insensitive); nama tampil "Nama, Gelar".
+  const gurus = useMemo(() => [...rows.filter((r) => r.role === "guru")].sort(byName()), [rows]);
   const belum = useMemo(() => gurus.filter((g) => !String(g.email || "").trim()), [gurus]);
   const sudah = useMemo(() => gurus.filter((g) => String(g.email || "").trim()), [gurus]);
-  const others = useMemo(() => rows.filter((r) => r.role !== "guru"), [rows]);
+  const others = useMemo(() => [...rows.filter((r) => r.role !== "guru")].sort(byName()), [rows]);
+  // Backfill gelar sekali per sesi: doc guru Firestore tanpa gelar → default "S.Pd".
+  const gelarFix = useRef(false);
+  useEffect(() => {
+    if (gelarFix.current || !akun.remote || akun.loading) return;
+    const missing = gurus.filter((g) => !String(g.gelar || "").trim());
+    if (!missing.length) return;
+    gelarFix.current = true;
+    (async () => {
+      for (const m of missing) {
+        try { await updateDocById("users", m.id, { gelar: "S.Pd" }); } catch {}
+      }
+    })();
+  }, [akun.remote, akun.loading, gurus]);
   const list = tab === "belum" ? belum : sudah;
   const filtered = useMemo(
     () => list.filter((r) => `${r.name} ${r.gelar || ""} ${r.email}`.toLowerCase().includes(q.toLowerCase())),
@@ -201,7 +215,7 @@ export default function AkunPage() {
                   <td className="px-4 py-3">
                     <input type="checkbox" checked={selected.includes(r.id)} onChange={() => toggle(r.id)} aria-label={`Pilih ${r.name}`} className="size-5 accent-brand-600" />
                   </td>
-                  <td className="px-4 py-3 font-semibold">{r.name}</td>
+                  <td className="px-4 py-3 font-semibold"><span className="block max-w-[42vw] truncate sm:max-w-none" title={r.name}>{r.name}</span></td>
                   <td className="px-4 py-3 text-slate-600">{String(r.gelar || "").trim() || "–"}</td>
                 </tr>
               ))}
@@ -210,7 +224,7 @@ export default function AkunPage() {
             <Table head={["Nama", "Email", "Aksi"]}>
               {filtered.map((r) => (
                 <tr key={r.id} className="hover:bg-slate-50/60">
-                  <td className="px-4 py-3 font-semibold">{namaGelar(r)}</td>
+                  <td className="px-4 py-3 font-semibold"><span className="block max-w-[42vw] truncate sm:max-w-none" title={namaGelar(r)}>{namaGelar(r)}</span></td>
                   <td className="px-4 py-3 text-slate-600">
                     {r.email} {r.emailAuto && <Badge tone="blue">otomatis</Badge>}
                   </td>
@@ -228,7 +242,7 @@ export default function AkunPage() {
               <Table head={["Nama", "Email", "Peran", "Aksi"]}>
                 {others.map((r) => (
                   <tr key={r.id} className="hover:bg-slate-50/60">
-                    <td className="px-4 py-3 font-semibold">{r.name}</td>
+                    <td className="px-4 py-3 font-semibold"><span className="block max-w-[42vw] truncate sm:max-w-none" title={namaGelar(r)}>{namaGelar(r)}</span></td>
                     <td className="px-4 py-3 text-slate-600">{r.email}</td>
                     <td className="px-4 py-3"><Badge tone={r.role === "admin" ? "red" : "amber"}>{r.role}</Badge></td>
                     <td className="px-4 py-3">{actions(r)}</td>

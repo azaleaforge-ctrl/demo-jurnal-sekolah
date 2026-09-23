@@ -16,7 +16,7 @@ export type ExportDir = {
   school: { name: string; academicYear: string; semester: string; principalName?: string };
   students: { id: string; nisn: string; name: string; class_id: string }[];
   classes: { id: string; name: string; wali?: string }[];
-  teachers: { id: string; name: string }[];
+  teachers: { id: string; name: string; gelar?: string }[];
 };
 const defaultDir: ExportDir = { school: fbSchool, students: fbStudents, classes: fbClasses, teachers: fbTeachers };
 
@@ -117,8 +117,8 @@ export function filterRekap(
     .filter((f) => (!dari || f.date >= dari) && (!sampai || f.date <= sampai))
     .filter((f) => tipe !== "siswa" || !classId || f.class_id === classId || (!!cls && f.class === cls.name))
     .filter((f) => tipe !== "guru" || !teacherId || (f as any).teacher_id === teacherId || (!!tch && f.teacher === tch.name));
-  // Tertib final: nama A–Z, terbaru dulu (bukan tanggal menaik).
-  return sortJournalRows(hit, (f) => (tipe === "guru" ? f.teacher : f.class));
+  // Tertib final: label guru A–Z (nama+gelar), terbaru dulu (bukan tanggal menaik).
+  return sortJournalRows(hit, (f) => (tipe === "guru" ? teacherLabel(dir, teacherId, f.teacher) : f.class));
 }
 
 export function studentOf(id: string, students: ExportDir["students"] = defaultDir.students) {
@@ -127,9 +127,22 @@ export function studentOf(id: string, students: ExportDir["students"] = defaultD
 
 function guruPengampu(o: RekapOpts, rows: FeedEntry[]) {
   const dir = o.dir ?? defaultDir;
-  if (o.teacherId) return dir.teachers.find((t) => t.id === o.teacherId)?.name || "-";
+  if (o.teacherId) return teacherLabel(dir, o.teacherId);
   const names = [...new Set(rows.map((r) => r.teacher))];
-  return names.length === 1 ? names[0] : "Semua Guru";
+  if (names.length !== 1) return "Semua Guru";
+  const id = rows.find((r) => r.teacher === names[0])?.teacher_id;
+  return teacherLabel(dir, id, names[0]);
+}
+
+// Label guru "Nama, Gelar" (gelar dari dir.teachers bila ada; fallback nama
+// saja bila kosong — tak pernah "undefined"). Dipakai di SEMUA output guru
+// (excel+pdf, harian/mingguan/bulanan, ZIP) agar konsisten.
+export function teacherLabel(dir: ExportDir | undefined, id?: string, name?: string): string {
+  const list = dir?.teachers ?? [];
+  const hit = (id && list.find((t) => t.id === id)) || ((name || "").trim() && list.find((t) => t.name === (name || "").trim())) || undefined;
+  const nm = hit?.name || (name || "").trim() || "-";
+  const gelar = String((hit as { gelar?: unknown } | undefined)?.gelar ?? "").trim();
+  return gelar ? `${nm}, ${gelar}` : nm;
 }
 
 function kelasMeta(o: RekapOpts, rows: FeedEntry[]) {
@@ -318,14 +331,14 @@ function embedCell(wb: ExcelJS.Workbook, ws: ExcelJS.Worksheet, m: Media, col: n
 }
 
 export async function buildRekapExcel(o: RekapOpts & { rows: FeedEntry[] }): Promise<Uint8Array> {
-  // Tertib final di SEMUA output excel: nama A–Z, terbaru dulu.
-  o = { ...o, rows: sortJournalRows(o.rows, (f) => (o.tipe === "guru" ? f.teacher : f.class)) };
   const wb = new ExcelJS.Workbook();
   const dir = o.dir ?? defaultDir;
+  // Tertib final di SEMUA output excel: grup label guru A–Z, terbaru dulu.
+  o = { ...o, rows: sortJournalRows(o.rows, (f) => (o.tipe === "guru" ? teacherLabel(dir, f.teacher_id, f.teacher) : f.class)) };
   const sch = dir.school;
   const guruName = o.tipe === "guru" ? guruPengampu(o, o.rows) : o.rows[0]?.teacher || "-";
   const principal = principalOf(dir);
-  const wali = waliOf(o, o.rows);
+  const wali = teacherLabel(dir, undefined, waliOf(o, o.rows));
   const dateStr = o.sampai ? fmtID(o.sampai) : o.dari ? fmtID(o.dari) : "-";
 
   if (o.tipe === "guru") {
@@ -342,7 +355,7 @@ export async function buildRekapExcel(o: RekapOpts & { rows: FeedEntry[] }): Pro
       o.rows.forEach((j, i) => {
         const r = 8 + i;
         bodyRow(ws, r, [
-          i + 1, hariTanggal(j.date), waktuIsi(createdAtOf(j)), jamRange(j.schedule), j.class, j.teacher,
+          i + 1, hariTanggal(j.date), waktuIsi(createdAtOf(j)), jamRange(j.schedule), j.class, teacherLabel(dir, j.teacher_id, j.teacher),
           j.material || "-", j.notes || "-",
           mediaB[i].foto ? "" : j.photo ? "Ada" : "-", mediaB[i].ttd ? "" : j.signature ? "Ada" : "-",
         ], false, 64);
@@ -360,7 +373,7 @@ export async function buildRekapExcel(o: RekapOpts & { rows: FeedEntry[] }): Pro
       o.rows.forEach((j, i) => {
         const r = 8 + i;
         bodyRow(ws, r, [
-          i + 1, hariTanggal(j.date), waktuIsi(createdAtOf(j)), jamRange(j.schedule), j.class, j.teacher,
+          i + 1, hariTanggal(j.date), waktuIsi(createdAtOf(j)), jamRange(j.schedule), j.class, teacherLabel(dir, j.teacher_id, j.teacher),
           j.material || "-", j.notes || "-",
           media[i].foto ? "" : j.photo ? "Ada" : "-", media[i].ttd ? "" : j.signature ? "Ada" : "-",
         ], false, 64);
@@ -379,7 +392,7 @@ export async function buildRekapExcel(o: RekapOpts & { rows: FeedEntry[] }): Pro
     judulRow(ws, 4, "LAPORAN REKAPITULASI KEHADIRAN SISWA", 10);
     metaRow(ws, 5, "Tahun Pelajaran", `${sch.academicYear}`, "Kelas", kelasMeta(o, o.rows));
     metaRow(ws, 6, "Semester", sch.semester, "Periode", metaPeriode(o.dari, o.sampai));
-    metaRow(ws, 7, "", "", "Wali Kelas", waliOf(o, o.rows));
+    metaRow(ws, 7, "", "", "Wali Kelas", wali);
     let r = 8;
     // Per-siswa dari attendances (dipakai tabel detail & angka bulanan).
     const perSiswa = new Map<string, { nisn: string; name: string; h: number; s: number; i: number; a: number }>();
@@ -436,7 +449,7 @@ export async function buildRekapExcel(o: RekapOpts & { rows: FeedEntry[] }): Pro
       r++;
       rest.forEach((j, i) => {
         const t = j.stats.hadir + j.stats.sakit + j.stats.izin + j.stats.alpha;
-        bodyRow(ws, r++, [i + 1, hariTanggal(j.date), waktuIsi(createdAtOf(j)), j.class, j.teacher, j.stats.hadir, j.stats.sakit, j.stats.izin, j.stats.alpha, t], false, 20);
+        bodyRow(ws, r++, [i + 1, hariTanggal(j.date), waktuIsi(createdAtOf(j)), j.class, teacherLabel(dir, j.teacher_id, j.teacher), j.stats.hadir, j.stats.sakit, j.stats.izin, j.stats.alpha, t], false, 20);
       });
     }
     }
@@ -592,13 +605,14 @@ function guruDetailPages(
 }
 
 export function buildRekapPdf(o: RekapOpts & { rows: FeedEntry[] }): Blob {
-  // Tertib final di SEMUA output pdf: nama A–Z, terbaru dulu.
-  o = { ...o, rows: sortJournalRows(o.rows, (f) => (o.tipe === "guru" ? f.teacher : f.class)) };
+  const dir = o.dir ?? defaultDir;
+  // Tertib final di SEMUA output pdf: grup label guru A–Z, terbaru dulu.
+  o = { ...o, rows: sortJournalRows(o.rows, (f) => (o.tipe === "guru" ? teacherLabel(dir, f.teacher_id, f.teacher) : f.class)) };
   const sch = (o.dir ?? defaultDir).school;
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const guruName = o.tipe === "guru" ? guruPengampu(o, o.rows) : o.rows[0]?.teacher || "-";
   const principal = principalOf(o.dir ?? defaultDir);
-  const wali = waliOf(o, o.rows);
+  const wali = o.tipe === "siswa" ? teacherLabel(dir, undefined, waliOf(o, o.rows)) : waliOf(o, o.rows);
   const dateStr = o.sampai ? fmtID(o.sampai) : o.dari ? fmtID(o.dari) : "-";
 
   if (o.tipe === "guru") {
@@ -614,7 +628,7 @@ export function buildRekapPdf(o: RekapOpts & { rows: FeedEntry[] }): Blob {
       // Bulanan guru = FULL DETAIL sebulan penuh + TOTAL di akhir (kontrak §3E).
       guruDetailPages(doc, [
         ...o.rows.map((j, i) => [
-          i + 1, hariTanggal(j.date), waktuIsi(createdAtOf(j)), jamRange(j.schedule), j.class, j.teacher,
+          i + 1, hariTanggal(j.date), waktuIsi(createdAtOf(j)), jamRange(j.schedule), j.class, teacherLabel(dir, j.teacher_id, j.teacher),
           j.material || "-", j.notes || "-", j.photo ? "Ada" : "-", j.signature ? "Ada" : "-",
         ]),
         [`TOTAL (${o.rows.length} jurnal)`, "", "", "", "", "", "", "", "", ""],
@@ -624,7 +638,7 @@ export function buildRekapPdf(o: RekapOpts & { rows: FeedEntry[] }): Blob {
       return doc.output("blob");
     }
     guruDetailPages(doc, o.rows.map((j, i) => [
-      i + 1, hariTanggal(j.date), waktuIsi(createdAtOf(j)), jamRange(j.schedule), j.class, j.teacher,
+      i + 1, hariTanggal(j.date), waktuIsi(createdAtOf(j)), jamRange(j.schedule), j.class, teacherLabel(dir, j.teacher_id, j.teacher),
       j.material || "-", j.notes || "-", j.photo ? "Ada" : "-", j.signature ? "Ada" : "-",
     ]), null, y + 4);
     ttdPdf(doc, (doc as any).lastAutoTable.finalY + 8, "Guru Mata Pelajaran", guruName, principal, dateStr);
@@ -645,7 +659,6 @@ export function buildRekapPdf(o: RekapOpts & { rows: FeedEntry[] }): Blob {
   doc.setFont("helvetica", "normal");
   doc.text(`: ${fit(wali, 30)}`, 206, y + 1);
   y += 6;
-  const dir = o.dir ?? defaultDir;
   // Per-siswa dari attendances (dipakai tabel detail & angka bulanan).
   const perSiswa = new Map<string, { nisn: string; name: string; h: number; s: number; i: number; a: number }>();
   o.rows.forEach((j) => {
@@ -708,7 +721,7 @@ export function buildRekapPdf(o: RekapOpts & { rows: FeedEntry[] }): Blob {
       head: [["No", "Hari & Tanggal", "Waktu Isi", "Kelas", "Guru", "H", "S", "I", "A", "Total"]],
       body: rest.map((j, i) => {
         const t = j.stats.hadir + j.stats.sakit + j.stats.izin + j.stats.alpha;
-        return [i + 1, hariTanggal(j.date), waktuIsi(createdAtOf(j)), j.class, j.teacher, j.stats.hadir, j.stats.sakit, j.stats.izin, j.stats.alpha, t];
+        return [i + 1, hariTanggal(j.date), waktuIsi(createdAtOf(j)), j.class, teacherLabel(dir, j.teacher_id, j.teacher), j.stats.hadir, j.stats.sakit, j.stats.izin, j.stats.alpha, t];
       }),
       styles: BODY_TXT,
       bodyStyles: BODY_CENTER,
@@ -837,8 +850,9 @@ export async function downloadRekap(o: RekapOpts & { format: "pdf" | "xlsx" }): 
 // PDF guru butuh preload gambar → varian async; fallback sinkron bila preload gagal total.
 export async function buildRekapPdfAsync(o: RekapOpts & { rows: FeedEntry[] }): Promise<Blob> {
   if (o.tipe !== "guru") return buildRekapPdf(o);
-  // Tertib final: nama A–Z, terbaru dulu (berlaku juga untuk varian embed gambar).
-  o = { ...o, rows: sortJournalRows(o.rows, (f) => f.teacher) };
+  const dir = o.dir ?? defaultDir;
+  // Tertib final: label guru A–Z, terbaru dulu (berlaku juga untuk varian embed gambar).
+  o = { ...o, rows: sortJournalRows(o.rows, (f) => teacherLabel(dir, f.teacher_id, f.teacher)) };
   const sch = (o.dir ?? defaultDir).school;
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const guruName = guruPengampu(o, o.rows);
@@ -855,7 +869,7 @@ export async function buildRekapPdfAsync(o: RekapOpts & { rows: FeedEntry[] }): 
     const mediaB = await buildGuruMedia(o.rows, { onProgress: o.onProgress });
     guruDetailPages(doc, [
       ...o.rows.map((j, i) => [
-        i + 1, hariTanggal(j.date), waktuIsi(createdAtOf(j)), jamRange(j.schedule), j.class, j.teacher,
+        i + 1, hariTanggal(j.date), waktuIsi(createdAtOf(j)), jamRange(j.schedule), j.class, teacherLabel(dir, j.teacher_id, j.teacher),
         j.material || "-", j.notes || "-",
         mediaB[i].foto ? " " : j.photo ? "Ada" : "-", mediaB[i].ttd ? " " : j.signature ? "Ada" : "-",
       ]),
@@ -867,7 +881,7 @@ export async function buildRekapPdfAsync(o: RekapOpts & { rows: FeedEntry[] }): 
   }
   const media = await buildGuruMedia(o.rows, { onProgress: o.onProgress });
   guruDetailPages(doc, o.rows.map((j, i) => [
-    i + 1, hariTanggal(j.date), waktuIsi(createdAtOf(j)), jamRange(j.schedule), j.class, j.teacher,
+    i + 1, hariTanggal(j.date), waktuIsi(createdAtOf(j)), jamRange(j.schedule), j.class, teacherLabel(dir, j.teacher_id, j.teacher),
     j.material || "-", j.notes || "-",
     media[i].foto ? " " : j.photo ? "Ada" : "-", media[i].ttd ? " " : j.signature ? "Ada" : "-",
   ]), media, y + 4);

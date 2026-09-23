@@ -107,7 +107,7 @@ File permanen di Storage: `backups/YYYY-MM/Backup-{Bulan Tahun}.zip`
   final (MB) tampil di toast setelah jadi.
   `downloadRekap` tidak dipakai langsung karena mengunci 1 guru / 1 kelas (§3E).
 
-## Aturan urut + Waktu Isi (export.ts, berlaku juga untuk ZIP)
+## Aturan urut + Waktu Isi + label guru (export.ts, berlaku juga untuk ZIP)
 
 - Kolom **Waktu Isi** (HH:MM dari `created_at`, fallback `00:00` bila kosong)
   ada di semua tabel ber-butir jurnal: rekap guru harian/mingguan/bulanan
@@ -122,6 +122,12 @@ File permanen di Storage: `backups/YYYY-MM/Backup-{Bulan Tahun}.zip`
   (`buildRekapExcel`, `buildRekapPdf`, `buildRekapPdfAsync`), dan
   `groupMonth` backup (grup guru/kelas A–Z, isi terbaru dulu).
   Daftar siswa per baris dan agregat per kelas sudah A–Z sejak lama.
+- Label guru selalu **"Nama, Gelar"** (`teacherLabel`, gelar dari
+  `dir.teachers` bila ada; fallback nama saja bila kosong — tak pernah
+  "undefined"): meta Guru Pengampu, kolom Nama Guru, agregat Guru, TTD,
+  Wali Kelas, serta folder + nama file ZIP per guru
+  (`{Bulan Tahun}/Guru/{Nama, Gelar}/…`, disanitasi). Urut grup memakai
+  label tampil; jurnal terbaru-di-atas di dalam tiap grup tetap dijaga.
 
 ## Konfirmasi popup (tanpa window.confirm)
 

@@ -11,7 +11,7 @@ import { Badge, Empty, Skeleton } from "@/src/components/ui/misc";
 import { Lightbox } from "@/src/components/lightbox";
 import { cn, todayID, byName } from "@/src/lib/utils";
 import { getSharedFeed, mapJournalEntry, byNewest, type FeedEntry } from "@/src/lib/feed";
-import { subscribeFeedJournals, useDirectory, type Doc } from "@/src/lib/db";
+import { subscribeFeedJournals, useDirectory, updateDocById, type Doc } from "@/src/lib/db";
 
 function isoDay(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -35,6 +35,8 @@ type StatusF = "semua" | "hadir" | "tidak-hadir";
 // H/S/I = kehadiran GURU dari teacher_status per jurnal (bukan murid). Tanpa Alpha.
 const isHadir = (j: FeedEntry) => j.teacher_status === "hadir";
 const tone = (s: string) => (s === "hadir" ? "green" : s === "izin" ? "blue" : s === "sakit" ? "amber" : "slate");
+// "Nama, Gelar" di semua tampilan (mis. Rina Marlina, S.Kom).
+const namaGelar = (r: any) => (String(r?.gelar || "").trim() ? `${r?.name}, ${String(r.gelar).trim()}` : String(r?.name || "–"));
 // "YYYY-MM-DD HH:mm:ss" → "HH:MM"; kosong → "–".
 const jamIsi = (created?: string) => (String(created || "").split(" ")[1] || "").slice(0, 5) || "–";
 const tglPendek = (iso: string) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : "–");
@@ -66,6 +68,20 @@ export default function KepsekGuruPage() {
     return [...list].sort(byName());
   }, [guruList, cariGuru]);
   const guruAktif = useMemo(() => guruList.find((g) => g.id === teacherId), [guruList, teacherId]);
+
+  // Backfill gelar sekali per sesi: doc guru Firestore tanpa gelar → default "S.Pd".
+  const gelarFix = useRef(false);
+  useEffect(() => {
+    if (gelarFix.current || !dir.remote || dirLoading) return;
+    const missing = guruList.filter((u) => !String((u as any).gelar || "").trim());
+    if (!missing.length) return;
+    gelarFix.current = true;
+    (async () => {
+      for (const m of missing) {
+        try { await updateDocById("users", m.id, { gelar: "S.Pd" }); } catch {}
+      }
+    })();
+  }, [dir.remote, dirLoading, guruList]);
 
   // created_at per jurnal (otomatis saat dibuat; ubah absensi tak meresetnya).
   const createdMap = useMemo(() => new Map((raw?.js || []).map((j) => [j.id, String((j as any).created_at || "")])), [raw]);
@@ -165,7 +181,7 @@ export default function KepsekGuruPage() {
               <label className="mt-2 block text-sm font-semibold text-slate-700">Pilih guru (wajib)
                 <select value={teacherId} onChange={(e) => setTeacherId(e.target.value)} className="mt-1.5 block w-full max-w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal">
                   <option value="">Pilih guru…</option>
-                  {guruOpts.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                  {guruOpts.map((g) => <option key={g.id} value={g.id}>{namaGelar(g)}</option>)}
                 </select>
               </label>
               {cariGuru.trim() && guruOpts.length === 0 && (
@@ -197,7 +213,7 @@ export default function KepsekGuruPage() {
           </div>
           <div className="mt-3 flex flex-wrap gap-2 rounded-xl bg-slate-50 px-4 py-3 text-sm">
             <span><b>{ringkas.total}</b> jurnal</span><span className="text-slate-300">·</span>
-            <span><b>{guruAktif?.name || "—"}</b></span><span className="text-slate-300">·</span>
+            <span><b>{guruAktif ? namaGelar(guruAktif) : "—"}</b></span><span className="text-slate-300">·</span>
             <span>H <b>{ringkas.hadir}</b></span><span className="text-slate-300">·</span>
             <span>S <b>{ringkas.sakit}</b></span><span className="text-slate-300">·</span>
             <span>I <b>{ringkas.izin}</b></span>

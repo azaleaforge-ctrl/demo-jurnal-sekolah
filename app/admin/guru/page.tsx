@@ -1,12 +1,14 @@
 "use client";
+import { useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { Guard } from "@/src/lib/auth";
 import { AppShell } from "@/src/components/layout";
 import { Crud } from "@/src/components/crud";
 import { ImportExcel, type ImportResult } from "@/src/components/import-excel";
 import { Input } from "@/src/components/ui/input";
-import { useCollection, batchAdd } from "@/src/lib/db";
+import { useCollection, batchAdd, updateDocById } from "@/src/lib/db";
 import { teachers as fbTeachers } from "@/src/lib/mock";
+import { byName } from "@/src/lib/utils";
 
 type Guru = { id: string; name: string; gelar?: string; email: string; role: string; subject_ids: string[]; password?: string };
 type Draft = { name: string; gelar: string };
@@ -19,6 +21,23 @@ export default function GuruPage() {
     wheres: [["role", "==", "guru"]],
     fallback: fbTeachers.map((t) => ({ ...t, role: "guru" })) as Guru[],
   });
+
+  // Backfill gelar sekali per sesi: doc guru Firestore tanpa gelar → default "S.Pd".
+  const gelarFix = useRef(false);
+  const users = guru.rows;
+  useEffect(() => {
+    if (gelarFix.current || !guru.remote || guru.loading) return;
+    const missing = users.filter((u) => !String((u as any).gelar || "").trim());
+    if (!missing.length) return;
+    gelarFix.current = true;
+    (async () => {
+      for (const m of missing) {
+        try { await updateDocById("users", m.id, { gelar: "S.Pd" }); } catch {}
+      }
+    })();
+  }, [guru.remote, guru.loading, users]);
+
+  const sorted = useMemo(() => [...users].sort(byName()), [users]);
 
   // Impor ketat: hanya NAMA + GELAR yang dibaca (email dibuat di menu Akun, bukan impor).
   // Baris tanpa nama dilewati dan terhitung di laporan "dilewati".
@@ -57,12 +76,12 @@ export default function GuruPage() {
     <Guard roles={["admin"]}>
       <AppShell role="admin" title="Data Guru" hint="Master guru — impor massal atau tambah manual; email login dibuat di menu Akun">
         <Crud
-          title="Guru" initial={[]} value={guru.rows} onChange={guru.setRows}
+          title="Guru" initial={[]} value={sorted} onChange={guru.setRows}
           loading={guru.loading}
           persist={{ ...guru.persist, create: (item: any) => guru.persist.create({ ...item, role: "guru", password: item.password || randPw() }) }}
           head={["Nama", "Gelar", "Aksi"]}
           cols={[
-            { key: "name", label: "Nama", render: (r: any) => namaGelar(r) },
+            { key: "name", label: "Nama", render: (r: any) => <span className="block max-w-[42vw] truncate font-semibold sm:max-w-none" title={namaGelar(r)}>{namaGelar(r)}</span> },
             { key: "gelar", label: "Gelar", render: (r: any) => String(r.gelar || "").trim() || "–" },
           ]}
           toolbarExtra={
