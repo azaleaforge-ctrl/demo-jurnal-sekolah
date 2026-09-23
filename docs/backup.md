@@ -122,6 +122,13 @@ File permanen di Storage: `backups/YYYY-MM/Backup-{Bulan Tahun}.zip`
   (`buildRekapExcel`, `buildRekapPdf`, `buildRekapPdfAsync`), dan
   `groupMonth` backup (grup guru/kelas A–Z, isi terbaru dulu).
   Daftar siswa per baris dan agregat per kelas sudah A–Z sejak lama.
+- Rantai `created_at` (kolom Waktu Isi tak muncul bila putus): Doc mentah
+  Firestore selalu punya `created_at` (stamp `db.ts`), tapi `mapJournalEntry`
+  / `normalizeRemote` tak membawanya. Keempat halaman penempel
+  `attachCreatedAt()` (export.ts) di tiap titik mapping — pola id→created_at
+  dari snapshot mentah `raw.js`: admin/export (realtime+remote), kepsek/export
+  (raw.js+remote), admin/backup, kepsek/backup. `monthRows`/`filterRekap`
+  hanya filter/sort sehingga stamp terbawa. Data lama tanpa stamp → "00:00".
 - Label guru selalu **"Nama, Gelar"** (`teacherLabel`, gelar dari
   `dir.teachers` bila ada; fallback nama saja bila kosong — tak pernah
   "undefined"): meta Guru Pengampu, kolom Nama Guru, agregat Guru, TTD,

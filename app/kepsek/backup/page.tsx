@@ -14,7 +14,7 @@ import {
   formatBytes, formatEta, isBackupCancelled, listArchiveMonths, monthLabel, monthRange, pastUnsealedMonths, prevMonth,
   sealFiles, sealStatus,
 } from "@/src/lib/backup";
-import { type ExportDir } from "@/src/lib/export";
+import { attachCreatedAt, type ExportDir } from "@/src/lib/export";
 import { byNewest, getSharedFeed, mapJournalEntry, type FeedEntry } from "@/src/lib/feed";
 import { getSetting, mockSetting, nowID, setDocTo, subscribeFeedJournals, useCollection, useDirectory, type Doc } from "@/src/lib/db";
 import { todayID } from "@/src/lib/utils";
@@ -74,7 +74,7 @@ export default function KepsekBackupPage() {
         (js, atts) => {
           if (!on) return;
           const d = { classes: dir.classes, subjects: dir.subjects, users: dir.users, materials: dir.materials, schedules: dir.schedules };
-          setFeed(js.map((j) => mapJournalEntry(j, d, atts)).sort(byNewest));
+          setFeed(js.map((j) => attachCreatedAt(mapJournalEntry(j, d, atts), j)).sort(byNewest));
         },
         () => { if (on) { setFeed(getSharedFeed()); toast.info("Mode demo — memakai data lokal."); } });
     } catch { setFeed(getSharedFeed()); }

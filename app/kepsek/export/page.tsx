@@ -9,7 +9,7 @@ import { Card } from "@/src/components/ui/card";
 import { Button } from "@/src/components/ui/button";
 import { Skeleton, Spinner } from "@/src/components/ui/misc";
 import { cn } from "@/src/lib/utils";
-import { downloadRekap, filterRekap, type RekapTipe, type ExportDir, type PeriodeMode } from "@/src/lib/export";
+import { downloadRekap, filterRekap, attachCreatedAt, type RekapTipe, type ExportDir, type PeriodeMode } from "@/src/lib/export";
 import { getSharedFeed, mapJournalEntry, byNewest, normalizeRemote, type FeedEntry } from "@/src/lib/feed";
 import { subscribeFeedJournals, useDirectory, getSetting, mockSetting, type Doc } from "@/src/lib/db";
 import { adminFeed } from "@/src/lib/api";
@@ -69,7 +69,7 @@ export default function KepsekExportPage() {
     let unsub: (() => void) | null = null;
     (async () => {
       try {
-        const rows = (await adminFeed({ tanggal_dari: dari, sampai })).map((r: any) => normalizeRemote(r));
+        const rows = (await adminFeed({ tanggal_dari: dari, sampai })).map((r: any) => attachCreatedAt(normalizeRemote(r), r));
         if (on) setFallback(rows);
         return;
       } catch {}
@@ -94,7 +94,7 @@ export default function KepsekExportPage() {
   const feed = useMemo<FeedEntry[]>(() => {
     if (raw) {
       const d = { classes: dir.classes, subjects: dir.subjects, users: dir.users, materials: dir.materials, schedules: dir.schedules };
-      return raw.js.map((j) => mapJournalEntry(j, d, raw.atts)).sort(byNewest);
+      return raw.js.map((j) => attachCreatedAt(mapJournalEntry(j, d, raw.atts), j)).sort(byNewest);
     }
     return fallback ?? [];
     // eslint-disable-next-line react-hooks/exhaustive-deps

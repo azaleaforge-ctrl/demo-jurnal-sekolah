@@ -86,6 +86,15 @@ export function waktuIsi(created_at?: string): string {
 const createdAtOf = (f: FeedEntry): string | undefined =>
   (f as unknown as { created_at?: string }).created_at;
 
+// Tempel created_at dari Doc mentah (raw.js) ke FeedEntry hasil mapJournalEntry
+// / normalizeRemote — keduanya tak membawanya sehingga Waktu Isi kosong.
+// Rantai: snapshot mentah → builder via waktuIsi()/createdAtOf().
+// Tanpa stamp → kembalikan apa adanya (fallback "00:00" di builder).
+export function attachCreatedAt(f: FeedEntry, raw: any): FeedEntry {
+  const stamp = String(raw?.created_at ?? "");
+  return stamp ? ({ ...f, created_at: stamp } as FeedEntry) : f;
+}
+
 // Terbaru dulu: created_at desc → date desc → id desc (tiebreak deterministik).
 // Baca saja — tak pernah mutate/menimpa field apa pun.
 export function compareJournalNewest(a: FeedEntry, b: FeedEntry): number {

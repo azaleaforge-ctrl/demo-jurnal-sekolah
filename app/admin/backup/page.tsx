@@ -14,7 +14,7 @@ import {
   deleteStorageUrl, estimateMonthZip, formatBytes, formatEta, isBackupCancelled, listArchiveMonths, monthLabel,
   monthRange, pastUnsealedMonths, prevMonth, sealFiles, sealStatus, tempArchiveId, uploadBackupZip,
 } from "@/src/lib/backup";
-import { type ExportDir } from "@/src/lib/export";
+import { attachCreatedAt, type ExportDir } from "@/src/lib/export";
 import { byNewest, getSharedFeed, mapJournalEntry, type FeedEntry } from "@/src/lib/feed";
 import {
   getSetting, mockSetting, nowID, removeDoc, setDocTo,
@@ -109,7 +109,7 @@ export default function AdminBackupPage() {
           if (!on) return;
           const d = dirRef.current;
           const dd = { classes: d.classes, subjects: d.subjects, users: d.users, materials: d.materials, schedules: d.schedules };
-          schedule(js.map((j) => mapJournalEntry(j, dd, atts)).sort(byNewest));
+          schedule(js.map((j) => attachCreatedAt(mapJournalEntry(j, dd, atts), j)).sort(byNewest));
         },
         () => { if (on) { schedule(getSharedFeed()); toast.info("Mode demo — memakai data lokal."); } });
     } catch { setFeed(getSharedFeed()); setFeedReady(true); }

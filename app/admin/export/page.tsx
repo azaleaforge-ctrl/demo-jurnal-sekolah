@@ -8,7 +8,7 @@ import { Card } from "@/src/components/ui/card";
 import { Button } from "@/src/components/ui/button";
 import { Skeleton, Spinner } from "@/src/components/ui/misc";
 import { cn } from "@/src/lib/utils";
-import { downloadRekap, filterRekap, type RekapTipe, type ExportDir, type PeriodeMode } from "@/src/lib/export";
+import { downloadRekap, filterRekap, attachCreatedAt, type RekapTipe, type ExportDir, type PeriodeMode } from "@/src/lib/export";
 import { getSharedFeed, mapJournalEntry, byNewest, normalizeRemote, type FeedEntry } from "@/src/lib/feed";
 import { subscribeFeedJournals, useDirectory, getSetting, mockSetting } from "@/src/lib/db";
 import { adminFeed } from "@/src/lib/api";
@@ -52,7 +52,7 @@ export default function ExportPage() {
     let unsub: (() => void) | null = null;
     (async () => {
       try {
-        setFeed((await adminFeed({ tanggal_dari: dari, sampai })).map((r: any) => normalizeRemote(r)));
+        setFeed((await adminFeed({ tanggal_dari: dari, sampai })).map((r: any) => attachCreatedAt(normalizeRemote(r), r)));
         return;
       } catch {}
       // Realtime lingkup rentang terpilih — export selalu dari data terbaru.
@@ -64,7 +64,7 @@ export default function ExportPage() {
               classes: dir.classes, subjects: dir.subjects, users: dir.users,
               materials: dir.materials, schedules: dir.schedules,
             };
-            setFeed(js.map((j) => mapJournalEntry(j, d, atts)).sort(byNewest));
+            setFeed(js.map((j) => attachCreatedAt(mapJournalEntry(j, d, atts), j)).sort(byNewest));
           },
           () => {
             if (!on) return;
