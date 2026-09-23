@@ -2,8 +2,11 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { BookOpenCheck, LayoutDashboard, Users, GraduationCap, School, BookOpen, Clock, FileText, KeyRound, Download, Settings, History, PenLine, BarChart3, LogOut, MoreHorizontal } from "lucide-react";
-import { useState } from "react";
+import { BookOpenCheck, LayoutDashboard, Users, GraduationCap, School, BookOpen, Clock, FileText, KeyRound, Download, Archive, Settings, History, PenLine, BarChart3, LogOut, MoreHorizontal } from "lucide-react";
+import { useEffect, useState } from "react";
+import { doc, onSnapshot } from "firebase/firestore";
+import { db } from "@/src/lib/firebase";
+import { mockSetting } from "@/src/lib/db";
 import { Modal } from "@/src/components/ui/modal";
 import { cn } from "@/src/lib/utils";
 import { useAuth } from "@/src/lib/auth";
@@ -20,25 +23,52 @@ const menus: Record<Role, { href: string; label: string; icon: any }[]> = {
     { href: "/admin/materi", label: "Materi", icon: FileText },
     { href: "/admin/akun", label: "Akun", icon: KeyRound },
     { href: "/admin/export", label: "Export", icon: Download },
+    { href: "/admin/backup", label: "Backup", icon: Archive },
     { href: "/admin/pengaturan", label: "Pengaturan", icon: Settings },
+    { href: "/admin/cara-pakai", label: "Cara Pakai & Sistem", icon: BookOpen },
   ],
   guru: [
     { href: "/guru", label: "Beranda", icon: LayoutDashboard },
     { href: "/guru/jurnal-baru", label: "Jurnal Baru", icon: PenLine },
     { href: "/guru/riwayat", label: "Riwayat", icon: History },
+    { href: "/guru/cara-pakai", label: "Cara Pakai & Sistem", icon: BookOpen },
   ],
-  kepsek: [{ href: "/kepsek", label: "Eksekutif", icon: BarChart3 }],
+  kepsek: [
+    { href: "/kepsek", label: "Dashboard", icon: LayoutDashboard },
+    { href: "/kepsek/guru", label: "Guru", icon: GraduationCap },
+    { href: "/kepsek/siswa", label: "Siswa", icon: Users },
+    { href: "/kepsek/export", label: "Export", icon: Download },
+    { href: "/kepsek/backup", label: "Backup", icon: Archive },
+    { href: "/kepsek/cara-pakai", label: "Cara Pakai & Sistem", icon: BookOpen },
+  ],
 };
 
-export function Sidebar({ role }: { role: Role }) {
-  const path = usePathname();
+// Nama sekolah dinamis dari school_settings/main (realtime semua device);
+// fallback mock bila Firestore tak terjangkau.
+function useSchoolName(): string {
+  const [name, setName] = useState(mockSetting().school_name);
+  useEffect(() => {
+    if (!db) return;
+    try {
+      return onSnapshot(
+        doc(db, "school_settings", "main"),
+        (s) => { const n = (s.data() as any)?.school_name?.trim(); if (n) setName(n); },
+        () => {},
+      );
+    } catch { /* fallback mock */ }
+  }, []);
+  return name;
+}
+
+export function Sidebar({ role }: { role: Role }) {  const path = usePathname();
   const { user, logout } = useAuth();
   const r = useRouter();
+  const schoolName = useSchoolName();
   return (
     <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col overflow-hidden bg-ink text-white lg:flex lg:h-dvh">
       <div className="flex shrink-0 items-center gap-3 px-5 pb-6 pt-7">
         <span className="grid size-11 place-items-center rounded-2xl bg-brand-500 shadow-pop"><BookOpenCheck size={22} /></span>
-        <div><p className="font-display text-sm font-bold leading-tight">Jurnal Sekolah</p><p className="text-xs text-white/60">SMK Nusantara Cerdas</p></div>
+        <div><p className="font-display text-sm font-bold leading-tight">Jurnal Sekolah</p><p className="text-xs text-white/60">{schoolName}</p></div>
       </div>
       <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain px-3 py-1">
         {menus[role].map((m) => (

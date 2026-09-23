@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -23,8 +23,10 @@ const hint: Record<F["role"], string> = {
   kepsek: "kepsek@sekolah.id",
 };
 
+const homeOf = (role: F["role"]) => (role === "admin" ? "/admin" : role === "guru" ? "/guru" : "/kepsek");
+
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, user, ready } = useAuth();
   const r = useRouter();
   const [busy, setBusy] = useState(false);
   const { register, handleSubmit, watch, formState: { errors } } = useForm<F>({
@@ -32,12 +34,28 @@ export default function LoginPage() {
     defaultValues: { email: "rinamarlina@smknusantaracerdas.id", role: "guru" },
   });
   const role = watch("role");
+  const homed = useRef(false);
+  // Sudah login (mis. tombol back / sesi pulih) → redirect SEKALI ke home role.
+  // Alur role tak berubah; tanpa ini pengguna authed bisa nyangkut di form login.
+  useEffect(() => {
+    if (!ready || !user || homed.current) return;
+    homed.current = true;
+    r.replace(homeOf(user.role));
+  }, [ready, user, r]);
   async function onSubmit(v: F) {
+    if (busy) return;
     setBusy(true);
     try {
-      const u = await login(v.email, v.role);
+      // Firestore tanpa timeout sendiri — batasi 25 dtk agar tombol tak macet
+      // selamanya. Bila login asli menyusul sukses, effect di atas tetap
+      // mengantar ke home (tanpa submit ulang).
+      const u = await Promise.race([
+        login(v.email, v.role),
+        new Promise<never>((_, rej) =>
+          setTimeout(() => rej(new Error("Login terlalu lama — periksa koneksi lalu coba lagi.")), 25000)),
+      ]);
       toast.success("Selamat datang kembali!");
-      r.replace(u.role === "admin" ? "/admin" : u.role === "guru" ? "/guru" : "/kepsek");
+      r.replace(homeOf(u.role));
     } catch (e: any) {
       toast.error(e.message || "Gagal masuk");
     } finally {

@@ -68,6 +68,7 @@ export default function SiswaPage() {
               templateName="template-siswa.xlsx"
               templateHeaders={["nisn", "nama", "kelas"]}
               templateExample={[["010", "Contoh Siswa", "X RPL 1"]]}
+              pick={["nisn", "nama", "kelas"]}
               mapRow={mapRow}
               previewHead={["NISN", "Nama", "Kelas"]}
               toPreviewRow={(t) => [t.nisn, t.name, kelas.rows.find((c) => c.id === t.class_id)?.name || t.class_id]}

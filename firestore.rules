@@ -1,10 +1,38 @@
 // PERINGATAN: rules terbuka khusus MODE UJICOBA (§5). Jangan pakai di produksi —
 // naik ke Laravel + Sanctum dan kunci rules per auth/role sebelum go-live.
+// Koleksi `archives` (soft-archive bulanan, skema lihat docs/backup.md):
+// segel archives/YYYY-MM {month,dari,sampai,counts,createdBy,createdAt,status:"sealed"}.
+// Reset admin = deleteDoc segelnya saja; journals & student_attendances tak pernah dihapus.
+//
+// CATATAN: pola kunci-per-role di bawah TIDAK diaktifkan karena app memakai auth
+// localStorage trial (tanpa Firebase Auth → request.auth selalu null). Mengaktifkannya
+// sekarang = aplikasi terkunci total. Aktifkan blok produksi saat go-live ke
+// Laravel + Sanctum / Firebase Auth custom-claims (admin|kepsek|guru).
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /{document=**} {
       allow read, write: if true;
     }
+
+    // ---- Template produksi (NONAKTIF — lihat catatan di atas) ----
+    // function signedIn() { return request.auth != null; }
+    // function role() { return request.auth.token.role; }
+    // function isAdmin() { return signedIn() && role() == "admin"; }
+    // function isKepsek() { return signedIn() && role() == "kepsek"; }
+    // match /archives/{month} {
+    //   allow get, list: if isAdmin() || isKepsek();
+    //   allow create, update, delete: if isAdmin();
+    // }
+    // match /journals/{id} {
+    //   allow get, list: if isAdmin() || isKepsek();
+    //   allow create, update, delete: if isAdmin();
+    // }
+    // match /student_attendances/{id} {
+    //   allow get, list: if isAdmin() || isKepsek();
+    //   allow create, update, delete: if isAdmin();
+    // }
+    // match /students/{id} { allow get, list: if isAdmin() || isKepsek(); allow write: if isAdmin(); }
+    // match /users/{id} { allow get, list: if isAdmin() || isKepsek(); allow write: if isAdmin(); }
   }
 }

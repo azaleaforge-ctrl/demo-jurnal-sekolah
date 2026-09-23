@@ -116,8 +116,9 @@ export async function runSeed(onProgress: SeedProgress): Promise<{ skipped: stri
   if ((await countDocs("users")) === 0) {
     const items: any[] = GURU.map((name, i) => {
       const code = MAPEL[i % MAPEL.length][1];
+      const GELAR = ["S.Pd", "M.Pd", "S.Si", "S.Kom", "S.S", "S.Pd", "M.Pd", "S.Pd", "S.Kom", "S.Si", "S.Pd", "M.Pd", "S.S", "S.Pd"];
       return {
-        name, email: slugEmail(name, "SMK Nusantara Cerdas"), role: "guru",
+        name, gelar: GELAR[i % GELAR.length], email: slugEmail(name, "SMK Nusantara Cerdas"), role: "guru",
         password: randPw(), subject_ids: [subjectIds[code] || code],
       };
     });

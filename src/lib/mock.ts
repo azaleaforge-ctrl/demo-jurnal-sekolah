@@ -52,14 +52,14 @@ export const students = [
 ];
 
 export const teachers = [
-  { id: "g1", name: "Rina Marlina", email: "rinamarlina@smknusantaracerdas.id", subject_ids: ["m2"] },
-  { id: "g2", name: "Agus Wijaya", email: "aguswijaya@smknusantaracerdas.id", subject_ids: ["m1"] },
-  { id: "g3", name: "Siti Rahma", email: "sitirahma@smknusantaracerdas.id", subject_ids: ["m3"] },
+  { id: "g1", name: "Rina Marlina", gelar: "S.Pd", email: "rinamarlina@smknusantaracerdas.id", subject_ids: ["m2"] },
+  { id: "g2", name: "Agus Wijaya", gelar: "S.Pd", email: "aguswijaya@smknusantaracerdas.id", subject_ids: ["m1"] },
+  { id: "g3", name: "Siti Rahma", gelar: "M.Pd", email: "sitirahma@smknusantaracerdas.id", subject_ids: ["m3"] },
 ];
 
 export const users = [
   { id: "u1", name: "Admin Sekolah", email: "admin@sekolah.id", role: "admin" as Role },
-  ...teachers.map((t) => ({ id: t.id, name: t.name, email: t.email, role: "guru" as Role })),
+  ...teachers.map((t) => ({ id: t.id, name: t.name, gelar: t.gelar, email: t.email, role: "guru" as Role })),
   { id: "u9", name: "Drs. Haryanto", email: "kepsek@sekolah.id", role: "kepsek" as Role },
 ];
 

@@ -61,7 +61,7 @@ export type SavedJournal = {
 export default function JurnalBaru() {
   return (
     <Guard roles={["guru"]}>
-      <AppShell role="guru" title="Jurnal Baru" hint="Ikuti 4 langkah — data tersimpan otomatis per langkah">
+      <AppShell role="guru" title="Jurnal Baru" hint="Mengisi untuk hari ini — ikuti 4 langkah">
         <Wizard />
       </AppShell>
     </Guard>

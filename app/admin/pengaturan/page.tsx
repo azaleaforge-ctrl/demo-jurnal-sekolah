@@ -8,9 +8,15 @@ import { Card } from "@/src/components/ui/card";
 import { Input } from "@/src/components/ui/input";
 import { Button } from "@/src/components/ui/button";
 import { Skeleton } from "@/src/components/ui/misc";
-import { cn } from "@/src/lib/utils";
-import { getSetting, saveSetting, mockSetting } from "@/src/lib/db";
+import { cn, slugEmail } from "@/src/lib/utils";
+import { getSetting, saveSetting, mockSetting, listDocs, updateDocById, type Doc } from "@/src/lib/db";
 import { runSeed } from "@/src/lib/seed";
+
+// Akun guru "otomatis": bertanda emailAuto ATAU emailnya persis pola generate
+// slug(nama)@slug(nama sekolah saat itu). Akun email kustom tak pernah ikut.
+function isAutoUser(u: Doc, school: string): boolean {
+  return u.role === "guru" && ((u as any).emailAuto === true || u.email === slugEmail(u.name, school));
+}
 
 export default function PengaturanPage() {
   const fb = mockSetting();
@@ -18,6 +24,8 @@ export default function PengaturanPage() {
   const [tahun, setTahun] = useState(fb.academic_year);
   const [kepsek, setKepsek] = useState(fb.principal_name || "Drs. Haryanto");
   const [smt, setSmt] = useState<"Ganjil" | "Genap">(fb.semester === "genap" ? "Genap" : "Ganjil");
+  const [savedName, setSavedName] = useState(fb.school_name);
+  const [autoUsers, setAutoUsers] = useState<Doc[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [seeding, setSeeding] = useState(false);
@@ -27,11 +35,19 @@ export default function PengaturanPage() {
     (async () => {
       try {
         const s = await getSetting();
+        const base = s?.school_name || fb.school_name;
         if (s) {
           setNama(s.school_name);
           setTahun(s.academic_year);
           setSmt(s.semester === "genap" ? "Genap" : "Ganjil");
           setKepsek(s.principal_name || "Drs. Haryanto");
+        }
+        setSavedName(base);
+        try {
+          const users = await listDocs("users");
+          setAutoUsers(users.filter((u) => isAutoUser(u, base)));
+        } catch {
+          setAutoUsers(null);
         }
       } catch {
         toast.info("Mode demo — memakai data lokal.");
@@ -39,14 +55,36 @@ export default function PengaturanPage() {
         setLoading(false);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function save() {
-    if (!nama.trim()) return toast.error("Nama sekolah wajib diisi.");
+    const next = nama.trim();
+    if (!next) return toast.error("Nama sekolah wajib diisi.");
     setSaving(true);
     try {
-      await saveSetting({ school_name: nama.trim(), academic_year: tahun.trim(), semester: smt.toLowerCase(), principal_name: kepsek.trim() || "Drs. Haryanto" });
-      toast.success("Pengaturan sekolah disimpan.");
+      await saveSetting({ school_name: next, academic_year: tahun.trim(), semester: smt.toLowerCase(), principal_name: kepsek.trim() || "Drs. Haryanto" });
+      // Ganti nama sekolah → email akun otomatis ikut pola slug baru.
+      let renamed = 0;
+      if (next !== savedName && autoUsers?.length) {
+        for (const u of autoUsers) {
+          try {
+            const mail = slugEmail(u.name, next);
+            if (mail !== u.email) {
+              await updateDocById("users", u.id, { email: mail, emailAuto: true });
+              renamed++;
+            } else if (!(u as any).emailAuto) {
+              await updateDocById("users", u.id, { emailAuto: true });
+            }
+          } catch { /* satu gagal, lanjut sisanya */ }
+        }
+        try {
+          const users = await listDocs("users");
+          setAutoUsers(users.filter((u) => isAutoUser(u, next)));
+        } catch {}
+        setSavedName(next);
+      }
+      toast.success(renamed ? `Pengaturan disimpan; ${renamed} email akun otomatis diperbarui.` : "Pengaturan sekolah disimpan.");
     } catch {
       toast.success("Mode demo — pengaturan disimpan lokal.");
     } finally {
@@ -83,6 +121,15 @@ export default function PengaturanPage() {
                 <Input label="Nama sekolah" value={nama} onChange={(e) => setNama(e.target.value)} />
                 <Input label="Tahun ajaran" value={tahun} onChange={(e) => setTahun(e.target.value)} />
                 <Input label="Nama Kepala Sekolah" placeholder="Drs. Haryanto" value={kepsek} onChange={(e) => setKepsek(e.target.value)} />
+                {autoUsers !== null && (
+                  <p className="rounded-xl bg-slate-50 p-3 text-xs leading-relaxed text-slate-500">
+                    {autoUsers.length > 0 ? (
+                      <><b>{autoUsers.length} akun otomatis akan ikut berubah</b> — email guru berpola slug(nama)@slug(sekolah) diperbarui saat nama sekolah diganti. Akun email kustom tidak ikut.</>
+                    ) : (
+                      <>Tidak ada akun email otomatis — email kustom tidak ikut berubah saat nama sekolah diganti.</>
+                    )}
+                  </p>
+                )}
                 <Button disabled={saving} onClick={save}>{saving ? "Menyimpan…" : "Simpan pengaturan"}</Button>
               </div>
             )}

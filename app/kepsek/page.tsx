@@ -1,117 +1,163 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { toast } from "sonner";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
-import { Download, Loader2 } from "lucide-react";
+import { Eye, ImageIcon } from "lucide-react";
 import { Guard } from "@/src/lib/auth";
 import { AppShell } from "@/src/components/layout";
 import { Card, Stat } from "@/src/components/ui/card";
-import { Button } from "@/src/components/ui/button";
 import { Table } from "@/src/components/ui/table";
-import { Badge, Spinner, Skeleton } from "@/src/components/ui/misc";
-import { cn } from "@/src/lib/utils";
-import { getSharedFeed, mapJournalEntry, byNewest, normalizeRemote, summarizeFeed, type FeedEntry, type Summary } from "@/src/lib/feed";
-import { subscribeFeedJournals, useDirectory } from "@/src/lib/db";
+import { Badge, Skeleton } from "@/src/components/ui/misc";
+import { Lightbox } from "@/src/components/lightbox";
 import { adminFeed } from "@/src/lib/api";
-import { downloadRekap } from "@/src/lib/export";
+import { getSharedFeed, mapJournalEntry, byNewest, normalizeRemote, summarizeFeed, type Summary, type FeedEntry } from "@/src/lib/feed";
+import { subscribeFeedJournals, useDirectory, type Doc } from "@/src/lib/db";
 import { todayID } from "@/src/lib/utils";
 
 const COLORS = ["#2E5BFF", "#F5B83D", "#38BDF8", "#F43F5E"];
-const gTone = (s: string) => (s === "hadir" ? "green" : s === "izin" ? "blue" : "amber");
+const gTone = (s: string | null) => (!s ? "slate" : s === "hadir" ? "green" : s === "izin" ? "blue" : "amber");
 
-export default function KepsekPage() {
+export default function KepsekHome() {
   const today = todayID();
   const dir = useDirectory();
-  const [tab, setTab] = useState<"harian" | "bulanan">("harian");
-  const [busy, setBusy] = useState<string | null>(null);
-  const [feed, setFeed] = useState<FeedEntry[]>([]);
-  const [summary, setSummary] = useState<Summary | null>(null);
+  const dirLoading = dir.loading;
+  const [tanggal, setTanggal] = useState(today);
+  // Mode HARIAN: query sempit [date==tanggal] agar payload kecil & Pie/Bar cepat tampil.
+  // Snapshot mentah (tanpa label) + hasil remote — remap via memo agar dir baru tak picu resubscribe.
+  const [raw, setRaw] = useState<{ js: Doc[]; atts: Doc[] } | null>(null);
+  const [local, setLocal] = useState<FeedEntry[] | null>(null);
+  const [remote, setRemote] = useState<FeedEntry[] | null>(null);
+  const demoToast = useRef(false);
+  const notifyDemo = () => {
+    if (!demoToast.current) { demoToast.current = true; toast.info("Mode demo — memakai data lokal."); }
+  };
+  const [fClass, setFClass] = useState("");
+  const [fTeacher, setFTeacher] = useState("");
+  const [zoom, setZoom] = useState<{ src: string; label: string } | null>(null);
+  const feedRef = useRef<HTMLDivElement>(null);
 
-  // Satu feed dengan admin & guru — realtime, jurnal baru otomatis muncul di sini.
+  const guruList = useMemo(() => dir.users.filter((u) => u.role === "guru"), [dir.users]);
+  const fdir = useMemo(() => ({
+    teachers: guruList.map((u) => ({ id: u.id, name: u.name, subject_ids: u.subject_ids })),
+    classes: dir.classes.map((c) => ({ id: c.id, name: c.name })),
+    subjects: dir.subjects.map((s) => ({ id: s.id, name: s.name, code: s.code })),
+  }), [guruList, dir.classes, dir.subjects]);
+
+  // Geser tanggal YYYY-MM-DD ±n hari (navigasi hari).
+  function shiftDay(iso: string, d: number) {
+    const [y, m, dd] = iso.split("-").map(Number);
+    const dt = new Date(y, m - 1, dd);
+    dt.setDate(dt.getDate() + d);
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}`;
+  }
+
+  // Subscribe sempit [date==tanggal]; grafik dihitung dari snapshot hari itu via memo.
   useEffect(() => {
-    if (dir.loading) return;
+    if (dirLoading) return;
     let on = true;
     let unsub: (() => void) | null = null;
-    const dirLists = () => ({
-      classes: dir.classes, subjects: dir.subjects, users: dir.users,
-      materials: dir.materials, schedules: dir.schedules,
-    });
     (async () => {
-      const fdir = {
-        teachers: dir.users.filter((u) => u.role === "guru").map((u) => ({ id: u.id, name: u.name, subject_ids: u.subject_ids })),
-        classes: dir.classes.map((c) => ({ id: c.id, name: c.name })),
-        subjects: dir.subjects.map((s) => ({ id: s.id, name: s.name, code: s.code })),
-      };
-      const bulan = today.slice(0, 7);
       try {
-        const remote = (await adminFeed({})).map((r: any) => normalizeRemote(r));
+        const f = await adminFeed({ tanggal_dari: tanggal, sampai: tanggal });
         if (!on) return;
-        setFeed(remote);
-        setSummary(summarizeFeed(remote, today, bulan, fdir));
+        setRemote(f.map((r: any) => normalizeRemote(r)));
         return;
       } catch {}
       try {
-        unsub = subscribeFeedJournals([["date", ">=", `${bulan}-01`]],
-          (js, atts) => {
-            if (!on) return;
-            const mapped = js.map((j) => mapJournalEntry(j, dirLists(), atts)).sort(byNewest);
-            setFeed(mapped);
-            setSummary(summarizeFeed(mapped, today, bulan, fdir));
-          },
+        unsub = subscribeFeedJournals([["date", "==", tanggal]],
+          (js, atts) => { if (on) setRaw({ js, atts }); },
           () => {
             if (!on) return;
-            const local = getSharedFeed();
-            setFeed(local);
-            setSummary(summarizeFeed(local, today, bulan, fdir));
-            toast.info("Mode demo — memakai data lokal.");
+            setLocal(getSharedFeed().filter((j) => j.date === tanggal));
+            notifyDemo();
           });
         return;
       } catch {}
       if (!on) return;
-      const local = getSharedFeed();
-      setFeed(local);
-      setSummary(summarizeFeed(local, today, bulan, fdir));
-      toast.info("Mode demo — memakai data lokal.");
+      setLocal(getSharedFeed().filter((j) => j.date === tanggal));
+      notifyDemo();
     })();
     return () => { on = false; unsub?.(); };
+  }, [dirLoading, tanggal]);
+
+  // Remap snapshot mentah → label saat direktori berubah, tanpa resubscribe.
+  const mapped = useMemo<FeedEntry[] | null>(() => {
+    if (!raw) return null;
+    const d = { classes: dir.classes, subjects: dir.subjects, users: dir.users, materials: dir.materials, schedules: dir.schedules };
+    return raw.js.map((j) => mapJournalEntry(j, d, raw.atts)).sort(byNewest);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dir.loading, dir]);
+  }, [raw, dir.classes, dir.subjects, dir.users, dir.materials, dir.schedules]);
 
-  async function exp(kind: string) {
-    if (busy) return;
-    setBusy(kind);
-    try {
-      const mode = await downloadRekap({ tipe: "guru", format: kind === "pdf" ? "pdf" : "xlsx", dari: "", sampai: "", feed });
-      toast.success(mode === "remote" ? "File dari server diunduh." : "File rekap diunduh (dibuat lokal).");
-    } catch (e: any) {
-      toast.error(e.message || "Gagal membuat file.");
-    } finally {
-      setBusy(null);
-    }
-  }
+  const feed = remote ?? mapped ?? local ?? [];
+  // Grafik dirender hanya setelah payload pertama tiba (lazy) — hari kosong = ringkasan nol, wajar.
+  const ready = remote !== null || mapped !== null || local !== null;
+  const summary = useMemo<Summary | null>(() => {
+    if (!ready) return null;
+    return summarizeFeed(feed, tanggal, tanggal.slice(0, 7), fdir);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, feed, tanggal, fdir]);
 
-  const s = summary?.siswa;
+  const visible = useMemo(
+    () => feed.filter((f) => f.date === tanggal && (!fClass || f.class === fClass || f.class_id === fClass) && (!fTeacher || f.teacher === fTeacher)).slice(0, 6),
+    [feed, tanggal, fClass, fTeacher]
+  );
+
+  const gPct = summary && summary.guru.total ? Math.round((summary.guru.hadir / summary.guru.total) * 100) : 0;
+  const sTot = summary ? summary.siswa.hadir + summary.siswa.sakit + summary.siswa.izin + summary.siswa.alpha : 0;
+  const sPct = sTot ? Math.round(((summary?.siswa.hadir || 0) / sTot) * 100) : 0;
+  const busy = !summary;
 
   return (
     <Guard roles={["kepsek"]}>
-      <AppShell role="kepsek" title="Dashboard Eksekutif" hint="Potret kehadiran guru & siswa — data langsung dari jurnal">
-        {!summary ? (
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 w-full" />)}
+      <AppShell role="kepsek" title="Dashboard Eksekutif" hint="Read-only — pantau kehadiran guru & siswa, tanpa ubah data">
+        {/* Navigasi read-only antar halaman kepsek (sidebar lane lain tak disentuh) */}
+        <nav aria-label="Navigasi kepsek" className="mb-3 flex flex-wrap gap-2">
+          {[["/kepsek/guru", "Rekap Guru"], ["/kepsek/siswa", "Rekap Siswa"], ["/kepsek/export", "Export Center"]].map(([h, l]) => (
+            <Link key={h} href={h} className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-brand-600 shadow-soft hover:bg-brand-50">{l}</Link>
+          ))}
+        </nav>
+
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-100 bg-white p-3 shadow-soft">
+          <div className="flex min-w-0 items-center gap-1">
+            <button onClick={() => setTanggal((t) => shiftDay(t, -1))} aria-label="Hari sebelumnya" className="grid size-9 place-items-center rounded-lg border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50">‹</button>
+            <label className="min-w-0 text-xs font-semibold text-slate-500">Tanggal <input type="date" value={tanggal} max={today} onChange={(e) => e.target.value && setTanggal(e.target.value)} className="ml-1 max-w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-ink" /></label>
+            <button onClick={() => setTanggal((t) => shiftDay(t, 1))} aria-label="Hari berikutnya" disabled={tanggal >= today} className="grid size-9 place-items-center rounded-lg border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-40">›</button>
+            {tanggal !== today && (
+              <button onClick={() => setTanggal(today)} className="rounded-lg bg-brand-50 px-2.5 py-1.5 text-xs font-bold text-brand-600 hover:bg-brand-100">Hari ini</button>
+            )}
+          </div>
+          <select value={fClass} onChange={(e) => setFClass(e.target.value)} aria-label="Filter kelas" className="max-w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
+            <option value="">Semua kelas</option>
+            {dir.classes.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+          </select>
+          <select value={fTeacher} onChange={(e) => setFTeacher(e.target.value)} aria-label="Filter guru" className="max-w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
+            <option value="">Semua guru</option>
+            {guruList.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
+          </select>
+        </div>
+
+        {busy ? (
+          <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-24 w-full" />)}
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Stat label="Hadir" value={String(s?.hadir ?? 0)} hint="Siswa bulan berjalan" />
-            <Stat label="Sakit" value={String(s?.sakit ?? 0)} hint="Perlu perhatian" />
-            <Stat label="Izin" value={String(s?.izin ?? 0)} hint="Terkonfirmasi" />
-            <Stat label="Alpha" value={String(s?.alpha ?? 0)} hint="Butuh tindak lanjut" />
+          <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-3">
+            <Stat label="Total guru" value={String(summary?.guru.total ?? "…")} hint="Akun guru aktif" />
+            <Stat label={`Sudah isi ${tanggal.slice(5)}`} value={String((summary?.guru.hadir ?? 0) + (summary?.guru.izin ?? 0) + (summary?.guru.sakit ?? 0))} hint="Jurnal masuk hari itu" />
+            <Stat label="Belum isi" value={String(summary?.guru.belum_isi ?? "…")} hint="Perlu diingatkan" />
+            <Stat label="% hadir guru" value={`${gPct}%`} hint={`Tanggal ${tanggal.slice(5)}`} />
+            <Stat label="% hadir siswa" value={`${sPct}%`} hint={`Tanggal ${tanggal.slice(5)}`} />
+            <Stat label="Jurnal hari ini" value={String(feed.length)} hint="Masuk pada tanggal terpilih" />
           </div>
         )}
 
         <div className="mt-4 grid gap-3 lg:grid-cols-2">
           <Card className="min-w-0">
-            <h2 className="font-display font-bold">Tren kehadiran harian</h2>
+            <h2 className="font-display font-bold">Kehadiran siswa — {tanggal.slice(5)}</h2>
             <div className="mt-2 h-56 text-xs sm:h-64">
+              {!ready ? <Skeleton className="h-full w-full" /> : (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={summary?.trend || []} margin={{ left: -12, right: 4 }}>
                   <XAxis dataKey="tanggal" fontSize={11} />
@@ -123,62 +169,129 @@ export default function KepsekPage() {
                   <Bar dataKey="alpha" fill="#F43F5E" radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
+              )}
             </div>
           </Card>
-          <Card className="min-w-0">
-            <h2 className="font-display font-bold">Komposisi status</h2>
-            <div className="mt-2 h-56 text-xs sm:h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={summary?.siswaPie || []} dataKey="value" nameKey="name" outerRadius={90} label>
-                    {(summary?.siswaPie || []).map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                  </Pie>
-                  <Tooltip /><Legend wrapperStyle={{ fontSize: 12 }} />
-                </PieChart>
-              </ResponsiveContainer>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+            <Card className="min-w-0">
+              <h2 className="font-display font-bold">Status guru</h2>
+              <div className="mt-2 h-56 text-xs sm:h-64">
+                {!ready ? <Skeleton className="h-full w-full" /> : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={(summary?.guruPie || []).slice(0, 6)} dataKey="value" nameKey="name" outerRadius={80} label>
+                      {(summary?.guruPie || []).slice(0, 6).map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip /><Legend wrapperStyle={{ fontSize: 12 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+                )}
+              </div>
+            </Card>
+            <Card className="min-w-0">
+              <h2 className="font-display font-bold">Status siswa</h2>
+              <div className="mt-2 h-56 text-xs sm:h-64">
+                {!ready ? <Skeleton className="h-full w-full" /> : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={(summary?.siswaPie || []).slice(0, 6)} dataKey="value" nameKey="name" outerRadius={80} label>
+                      {(summary?.siswaPie || []).slice(0, 6).map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip /><Legend wrapperStyle={{ fontSize: 12 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+                )}
+              </div>
+            </Card>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 lg:grid-cols-5">
+          <Card className="lg:col-span-3 min-w-0">
+            <h2 className="font-display font-bold">Status per guru — {tanggal}</h2>
+            <div className="mt-3">
+              <Table head={["Guru", "Mapel", "Status", "Aksi"]}>
+                {(summary?.perTeacher || []).map((t) => (
+                  <tr key={t.teacher_id} className="hover:bg-slate-50/60">
+                    <td className="px-4 py-3 font-semibold">{t.name}</td>
+                    <td className="px-4 py-3 text-slate-500">{t.mapel}</td>
+                    <td className="px-4 py-3">
+                      {!t.submitted_today ? <Badge tone="slate">Belum isi</Badge> : <Badge tone={gTone(t.teacher_status) as any}>{t.teacher_status}</Badge>}
+                    </td>
+                    <td className="px-4 py-3">
+                      <button onClick={() => { setFTeacher(t.name); feedRef.current?.scrollIntoView({ behavior: "smooth" }); }} className="inline-flex items-center gap-1 rounded-lg bg-brand-50 px-2.5 py-1.5 text-xs font-bold text-brand-600 hover:bg-brand-100" title="Lihat jurnal guru ini">
+                        <Eye size={13} /> Lihat
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </Table>
+            </div>
+          </Card>
+          <Card className="lg:col-span-2 min-w-0">
+            <h2 className="font-display font-bold">Agregat per kelas</h2>
+            <div className="mt-3">
+              <Table head={["Kelas", "H", "S", "I", "A"]}>
+                {(summary?.perClass || []).map((c) => (
+                  <tr key={c.class_id} className="hover:bg-slate-50/60">
+                    <td className="px-4 py-3 font-semibold">{c.name}</td>
+                    <td className="px-4 py-3">{c.hadir}</td>
+                    <td className="px-4 py-3">{c.sakit}</td>
+                    <td className="px-4 py-3">{c.izin}</td>
+                    <td className="px-4 py-3">{c.alpha}</td>
+                  </tr>
+                ))}
+              </Table>
             </div>
           </Card>
         </div>
 
-        <Card className="mt-4 min-w-0">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h2 className="font-display font-bold">Rincian jurnal & absensi</h2>
-              <div className="mt-2 flex gap-1 rounded-xl bg-slate-100 p-1 text-sm font-semibold">
-                {(["harian", "bulanan"] as const).map((t) => (
-                  <button key={t} onClick={() => setTab(t)} className={cn("rounded-lg px-4 py-1.5 capitalize", tab === t ? "bg-white shadow-soft" : "text-slate-500")}>{t}</button>
-                ))}
-              </div>
-            </div>
-            <div className="no-print flex flex-wrap gap-2">
-              <Button variant="outline" className="max-sm:flex-1" disabled={!!busy} onClick={() => exp("pdf")}>
-                {busy === "pdf" ? <Spinner /> : <Download size={15} />} PDF
-              </Button>
-              <Button className="max-sm:flex-1" disabled={!!busy} onClick={() => exp("xls")}>
-                {busy === "xls" ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />} {busy === "xls" ? "Memproses…" : "Excel"}
-              </Button>
-            </div>
-          </div>
-          <div className="mt-4">
-            <Table head={["Tanggal", "Guru", "Kelas", "H", "S", "I", "A"]}>
-              {(tab === "harian" ? feed.slice(0, 10) : feed).map((j) => (
-                <tr key={j.id} className="hover:bg-slate-50/60">
-                  <td className="px-4 py-3">{j.date}</td>
-                  <td className="px-4 py-3">
-                    <span className="font-semibold">{j.teacher}</span>{" "}
-                    <Badge tone={gTone(j.teacher_status) as any}>{j.teacher_status}</Badge>
-                  </td>
-                  <td className="px-4 py-3">{j.class}</td>
-                  <td className="px-4 py-3">{j.stats.hadir}</td>
-                  <td className="px-4 py-3">{j.stats.sakit}</td>
-                  <td className="px-4 py-3">{j.stats.izin}</td>
-                  <td className="px-4 py-3">{j.stats.alpha}</td>
-                </tr>
+        <div ref={feedRef} className="mt-4 min-w-0 scroll-mt-24">
+          <Card>
+            <h2 className="font-display font-bold">Jurnal masuk — {tanggal}</h2>
+            <p className="mt-1 text-xs text-slate-500">Read-only — foto bukti bisa diperbesar, TTD guru disembunyikan untuk privasi.</p>
+            <div className="mt-3 space-y-2">
+              {visible.length === 0 && ready && (
+                <p className="rounded-xl bg-slate-50 p-4 text-center text-sm text-slate-500">
+                  {tanggal === today
+                    ? "Belum ada jurnal hari ini — wajar, data masuk saat guru mengisi."
+                    : "Tidak ada jurnal pada tanggal ini. Arsip hanya segel metadata — jurnal lama tetap bisa dibuka lewat tanggal ini."}
+                </p>
+              )}
+              {visible.map((j) => (
+                <div key={j.id} className="flex min-w-0 items-center gap-3 overflow-hidden rounded-2xl border border-slate-100 bg-slate-50/50 p-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-bold">{j.subject} · {j.class}</p>
+                    <p className="truncate text-xs text-slate-500">{j.teacher} · {j.date} · {j.material}</p>
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      <Badge tone={gTone(j.teacher_status) as any}>{j.teacher_status}</Badge>
+                      <Badge tone="green">H:{j.stats.hadir}</Badge>
+                      <Badge tone="red">A:{j.stats.alpha}</Badge>
+                    </div>
+                  </div>
+                  {j.photo ? (
+                    <button type="button" onClick={() => setZoom({ src: j.photo, label: `Foto — ${j.subject} ${j.class}` })} title="Klik untuk perbesar" className="block size-14 shrink-0 overflow-hidden rounded-xl">
+                      <img src={j.photo} alt="bukti" className="size-14 cursor-zoom-in object-cover" />
+                    </button>
+                  ) : (
+                    <span className="grid size-14 shrink-0 place-items-center rounded-xl bg-slate-200/60 text-slate-400"><ImageIcon size={16} /></span>
+                  )}
+                </div>
               ))}
-            </Table>
-            <p className="mt-2 text-xs text-slate-400">Tampilan {tab} · {feed.length} jurnal periode berjalan.</p>
+            </div>
+          </Card>
+        </div>
+
+        <Card className="mt-4">
+          <h2 className="font-display font-bold">Lihat rincian</h2>
+          <p className="mt-1 text-xs text-slate-500">Semua aksi di bawah ini read-only — tidak ada tambah, ubah, atau hapus.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {[["/kepsek/guru", "Rekap Guru"], ["/kepsek/siswa", "Rekap Siswa"], ["/kepsek/export", "Export Center"]].map(([h, l]) => (
+              <Link key={h} href={h} className="rounded-xl bg-brand-50 px-4 py-2 text-sm font-semibold text-brand-600 hover:bg-brand-100">{l}</Link>
+            ))}
           </div>
         </Card>
+        {zoom && <Lightbox src={zoom.src} label={zoom.label} onClose={() => setZoom(null)} />}
       </AppShell>
     </Guard>
   );

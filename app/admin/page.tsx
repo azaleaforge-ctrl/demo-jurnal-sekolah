@@ -10,9 +10,9 @@ import { Card, Stat } from "@/src/components/ui/card";
 import { Table } from "@/src/components/ui/table";
 import { Badge, Skeleton } from "@/src/components/ui/misc";
 import { Lightbox } from "@/src/components/lightbox";
-import { adminStats, adminFeed } from "@/src/lib/api";
-import { getSharedFeed, mapJournalEntry, byNewest, normalizeRemote, summarizeFeed, summaryFromRemote, type Summary, type FeedEntry } from "@/src/lib/feed";
-import { subscribeFeedJournals, useDirectory } from "@/src/lib/db";
+import { adminFeed } from "@/src/lib/api";
+import { getSharedFeed, mapJournalEntry, byNewest, normalizeRemote, summarizeFeed, type Summary, type FeedEntry } from "@/src/lib/feed";
+import { subscribeFeedJournals, useDirectory, type Doc } from "@/src/lib/db";
 import { todayID } from "@/src/lib/utils";
 
 const COLORS = ["#2E5BFF", "#F5B83D", "#38BDF8", "#F43F5E"];
@@ -21,10 +21,16 @@ const gTone = (s: string | null) => (!s ? "slate" : s === "hadir" ? "green" : s 
 export default function AdminHome() {
   const today = todayID();
   const dir = useDirectory();
-  const [bulan, setBulan] = useState(today.slice(0, 7));
+  const dirLoading = dir.loading;
   const [tanggal, setTanggal] = useState(today);
-  const [summary, setSummary] = useState<Summary | null>(null);
-  const [feed, setFeed] = useState<FeedEntry[]>([]);
+  // Mode HARIAN: query sempit [date==tanggal] agar payload kecil & Pie/Bar cepat tampil.
+  const [raw, setRaw] = useState<{ js: Doc[]; atts: Doc[] } | null>(null);
+  const [local, setLocal] = useState<FeedEntry[] | null>(null);
+  const [remote, setRemote] = useState<FeedEntry[] | null>(null);
+  const demoToast = useRef(false);
+  const notifyDemo = () => {
+    if (!demoToast.current) { demoToast.current = true; toast.info("Mode demo — memakai data lokal."); }
+  };
   const [fClass, setFClass] = useState("");
   const [fTeacher, setFTeacher] = useState("");
   const [zoom, setZoom] = useState<{ src: string; label: string } | null>(null);
@@ -37,62 +43,67 @@ export default function AdminHome() {
     subjects: dir.subjects.map((s) => ({ id: s.id, name: s.name, code: s.code })),
   }), [guruList, dir.classes, dir.subjects]);
 
+  // Geser tanggal YYYY-MM-DD ±n hari (navigasi hari).
+  function shiftDay(iso: string, d: number) {
+    const [y, m, dd] = iso.split("-").map(Number);
+    const dt = new Date(y, m - 1, dd);
+    dt.setDate(dt.getDate() + d);
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}`;
+  }
+
+  // Subscribe sempit [date==tanggal]; grafik dihitung dari snapshot hari itu via memo.
   useEffect(() => {
-    if (dir.loading) return;
+    if (dirLoading) return;
     let on = true;
     let unsub: (() => void) | null = null;
-    const dirLists = () => ({
-      classes: dir.classes, subjects: dir.subjects, users: dir.users,
-      materials: dir.materials, schedules: dir.schedules,
-    });
     (async () => {
-      // 1) Backend Laravel bila hidup
+      // 1) Backend Laravel bila hidup — rentang 1 hari saja
       try {
-        const [y, m] = bulan.split("-").map(Number);
-        const last = new Date(y, m, 0).getDate();
-        const [s, f] = await Promise.all([
-          adminStats({ bulan }),
-          adminFeed({ tanggal_dari: `${bulan}-01`, sampai: `${bulan}-${last}` }),
-        ]);
+        const f = await adminFeed({ tanggal_dari: tanggal, sampai: tanggal });
         if (!on) return;
-        const remote = f.map((r: any) => normalizeRemote(r));
-        setFeed(remote);
-        setSummary(summaryFromRemote(s, remote, bulan, fdir));
+        setRemote(f.map((r: any) => normalizeRemote(r)));
         return;
       } catch {}
-      // 2) Firestore realtime (§5) — agregasi client aturan §4.6, lingkup bulan.
-      // Tulis di device lain langsung muncul di sini tanpa refresh.
+      // 2) Firestore realtime (§5) — lingkup 1 hari, payload kecil.
       try {
-        unsub = subscribeFeedJournals([["date", ">=", `${bulan}-01`]],
-          (js, atts) => {
-            if (!on) return;
-            const mapped = js.map((j) => mapJournalEntry(j, dirLists(), atts)).sort(byNewest);
-            setFeed(mapped);
-            setSummary(summarizeFeed(mapped, tanggal, bulan, fdir));
-          },
+        unsub = subscribeFeedJournals([["date", "==", tanggal]],
+          (js, atts) => { if (on) setRaw({ js, atts }); },
           () => {
             if (!on) return;
-            const local = getSharedFeed();
-            setFeed(local);
-            setSummary(summarizeFeed(local, tanggal, bulan, fdir));
-            toast.info("Mode demo — memakai data lokal.");
+            setLocal(getSharedFeed().filter((j) => j.date === tanggal));
+            notifyDemo();
           });
         return;
       } catch {}
       // 3) Fallback mock bila Firestore tak terjangkau
       if (!on) return;
-      const local = getSharedFeed();
-      setFeed(local);
-      setSummary(summarizeFeed(local, tanggal, bulan, fdir));
-      toast.info("Mode demo — memakai data lokal.");
+      setLocal(getSharedFeed().filter((j) => j.date === tanggal));
+      notifyDemo();
     })();
     return () => { on = false; unsub?.(); };
+  }, [dirLoading, tanggal]);
+
+  // Remap snapshot mentah → label saat direktori berubah, tanpa resubscribe.
+  const mapped = useMemo<FeedEntry[] | null>(() => {
+    if (!raw) return null;
+    const d = { classes: dir.classes, subjects: dir.subjects, users: dir.users, materials: dir.materials, schedules: dir.schedules };
+    return raw.js.map((j) => mapJournalEntry(j, d, raw.atts)).sort(byNewest);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bulan, tanggal, dir.loading, dir]);
+  }, [raw, dir.classes, dir.subjects, dir.users, dir.materials, dir.schedules]);
+
+  const feed = remote ?? mapped ?? local ?? [];
+  // Grafik dirender hanya setelah payload pertama tiba (lazy).
+  const ready = remote !== null || mapped !== null || local !== null;
+  const summary = useMemo<Summary | null>(() => {
+    if (!ready) return null;
+    return summarizeFeed(feed, tanggal, tanggal.slice(0, 7), fdir);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, feed, tanggal, fdir]);
 
   const visible = useMemo(
-    () => feed.filter((f) => f.date.startsWith(bulan) && (!fClass || f.class === fClass || f.class_id === fClass) && (!fTeacher || f.teacher === fTeacher)).slice(0, 6),
-    [feed, bulan, fClass, fTeacher]
+    () => feed.filter((f) => f.date === tanggal && (!fClass || f.class === fClass || f.class_id === fClass) && (!fTeacher || f.teacher === fTeacher)).slice(0, 6),
+    [feed, tanggal, fClass, fTeacher]
   );
 
   const gPct = summary && summary.guru.total ? Math.round((summary.guru.hadir / summary.guru.total) * 100) : 0;
@@ -103,9 +114,15 @@ export default function AdminHome() {
   return (
     <Guard roles={["admin"]}>
       <AppShell role="admin" title="Dashboard Admin" hint="Semua jurnal guru mengalir ke sini otomatis">
-        <div className="flex flex-wrap gap-2 rounded-2xl border border-slate-100 bg-white p-3 shadow-soft">
-          <label className="min-w-0 text-xs font-semibold text-slate-500">Bulan <input type="month" value={bulan} onChange={(e) => e.target.value && setBulan(e.target.value)} className="ml-1 max-w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-ink" /></label>
-          <label className="min-w-0 text-xs font-semibold text-slate-500">Tanggal <input type="date" value={tanggal} onChange={(e) => e.target.value && setTanggal(e.target.value)} className="ml-1 max-w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-ink" /></label>
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-100 bg-white p-3 shadow-soft">
+          <div className="flex min-w-0 items-center gap-1">
+            <button onClick={() => setTanggal((t) => shiftDay(t, -1))} aria-label="Hari sebelumnya" className="grid size-9 place-items-center rounded-lg border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50">‹</button>
+            <label className="min-w-0 text-xs font-semibold text-slate-500">Tanggal <input type="date" value={tanggal} max={today} onChange={(e) => e.target.value && setTanggal(e.target.value)} className="ml-1 max-w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-ink" /></label>
+            <button onClick={() => setTanggal((t) => shiftDay(t, 1))} aria-label="Hari berikutnya" disabled={tanggal >= today} className="grid size-9 place-items-center rounded-lg border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-40">›</button>
+            {tanggal !== today && (
+              <button onClick={() => setTanggal(today)} className="rounded-lg bg-brand-50 px-2.5 py-1.5 text-xs font-bold text-brand-600 hover:bg-brand-100">Hari ini</button>
+            )}
+          </div>
           <select value={fClass} onChange={(e) => setFClass(e.target.value)} className="max-w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
             <option value="">Semua kelas</option>
             {dir.classes.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
@@ -125,16 +142,17 @@ export default function AdminHome() {
             <Stat label="Total guru" value={String(summary?.guru.total ?? "…")} hint="Akun guru aktif" />
             <Stat label={`Sudah isi ${tanggal.slice(5)}`} value={String((summary?.guru.hadir ?? 0) + (summary?.guru.izin ?? 0) + (summary?.guru.sakit ?? 0))} hint="Jurnal masuk hari itu" />
             <Stat label="Belum isi" value={String(summary?.guru.belum_isi ?? "…")} hint="Perlu diingatkan" />
-            <Stat label="% hadir guru" value={`${gPct}%`} hint={`Bulan ${bulan}`} />
-            <Stat label="% hadir siswa" value={`${sPct}%`} hint={`Bulan ${bulan}`} />
-            <Stat label="Jurnal bulan ini" value={String(feed.filter((f) => f.date.startsWith(bulan)).length)} hint="Otomatis dari guru" />
+            <Stat label="% hadir guru" value={`${gPct}%`} hint={`Tanggal ${tanggal.slice(5)}`} />
+            <Stat label="% hadir siswa" value={`${sPct}%`} hint={`Tanggal ${tanggal.slice(5)}`} />
+            <Stat label="Jurnal hari ini" value={String(feed.length)} hint="Masuk pada tanggal terpilih" />
           </div>
         )}
 
         <div className="mt-4 grid gap-3 lg:grid-cols-2">
           <Card className="min-w-0">
-            <h2 className="font-display font-bold">Tren kehadiran siswa harian</h2>
+            <h2 className="font-display font-bold">Kehadiran siswa — {tanggal.slice(5)}</h2>
             <div className="mt-2 h-56 text-xs sm:h-64">
+              {!ready ? <Skeleton className="h-full w-full" /> : (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={summary?.trend || []} margin={{ left: -12, right: 4 }}>
                   <XAxis dataKey="tanggal" fontSize={11} />
@@ -146,33 +164,38 @@ export default function AdminHome() {
                   <Bar dataKey="alpha" fill="#F43F5E" radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
+              )}
             </div>
           </Card>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
             <Card className="min-w-0">
               <h2 className="font-display font-bold">Status guru</h2>
               <div className="mt-2 h-56 text-xs sm:h-64">
+                {!ready ? <Skeleton className="h-full w-full" /> : (
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={summary?.guruPie || []} dataKey="value" nameKey="name" outerRadius={80} label>
-                      {(summary?.guruPie || []).map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                    <Pie data={(summary?.guruPie || []).slice(0, 6)} dataKey="value" nameKey="name" outerRadius={80} label>
+                      {(summary?.guruPie || []).slice(0, 6).map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                     </Pie>
                     <Tooltip /><Legend wrapperStyle={{ fontSize: 12 }} />
                   </PieChart>
                 </ResponsiveContainer>
+                )}
               </div>
             </Card>
             <Card className="min-w-0">
               <h2 className="font-display font-bold">Status siswa</h2>
               <div className="mt-2 h-56 text-xs sm:h-64">
+                {!ready ? <Skeleton className="h-full w-full" /> : (
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={summary?.siswaPie || []} dataKey="value" nameKey="name" outerRadius={80} label>
-                      {(summary?.siswaPie || []).map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                    <Pie data={(summary?.siswaPie || []).slice(0, 6)} dataKey="value" nameKey="name" outerRadius={80} label>
+                      {(summary?.siswaPie || []).slice(0, 6).map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                     </Pie>
                     <Tooltip /><Legend wrapperStyle={{ fontSize: 12 }} />
                   </PieChart>
                 </ResponsiveContainer>
+                )}
               </div>
             </Card>
           </div>
@@ -220,9 +243,15 @@ export default function AdminHome() {
 
         <div ref={feedRef} className="mt-4 min-w-0 scroll-mt-24">
           <Card>
-            <h2 className="font-display font-bold">Jurnal masuk terbaru</h2>
+            <h2 className="font-display font-bold">Jurnal masuk — {tanggal}</h2>
             <div className="mt-3 space-y-2">
-              {visible.length === 0 && <p className="rounded-xl bg-slate-50 p-4 text-center text-sm text-slate-500">Belum ada jurnal pada filter ini.</p>}
+              {visible.length === 0 && ready && (
+                <p className="rounded-xl bg-slate-50 p-4 text-center text-sm text-slate-500">
+                  {tanggal === today
+                    ? "Belum ada jurnal hari ini — data masuk saat guru mengisi."
+                    : "Tidak ada jurnal pada tanggal ini. Arsip hanya segel metadata — jurnal lama tetap bisa dibuka lewat tanggal ini."}
+                </p>
+              )}
               {visible.map((j) => (
                 <div key={j.id} className="flex min-w-0 items-center gap-3 overflow-hidden rounded-2xl border border-slate-100 bg-slate-50/50 p-3">
                   <div className="min-w-0 flex-1">

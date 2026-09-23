@@ -12,11 +12,13 @@ export type ImportResult<T> = { ok: true; data: T } | { ok: false; error: string
 
 // Widget impor generik: unduh template (backend → fallback lokal), parse .xlsx/.csv,
 // pratinjau valid + baris error, konfirmasi gabung.
+// Ketat: hanya kolom `pick` yang dibaca (case-insensitive, trim); kolom lain diabaikan.
 export function ImportExcel<T extends Record<string, any>>({
   templateUrl,
   templateName,
   templateHeaders,
   templateExample,
+  pick,
   mapRow,
   previewHead,
   toPreviewRow,
@@ -26,6 +28,7 @@ export function ImportExcel<T extends Record<string, any>>({
   templateName: string;
   templateHeaders: string[];
   templateExample: (string | number)[][];
+  pick?: string[];
   mapRow: (row: Record<string, any>) => ImportResult<T>;
   previewHead: string[];
   toPreviewRow: (t: T) => string[];
@@ -64,7 +67,9 @@ export function ImportExcel<T extends Record<string, any>>({
     json.forEach((r, i) => {
       const norm: Record<string, any> = {};
       Object.entries(r).forEach(([k, val]) => {
-        norm[String(k).trim().toLowerCase()] = typeof val === "string" ? val.trim() : val;
+        const key = String(k).trim().toLowerCase();
+        if (pick && !pick.includes(key)) return;
+        norm[key] = typeof val === "string" ? val.trim() : val;
       });
       const res = mapRow(norm);
       if (res.ok) v.push(res.data);
@@ -116,8 +121,8 @@ export function ImportExcel<T extends Record<string, any>>({
       />
       <Modal open={open} onClose={() => setOpen(false)} title="Pratinjau impor">
         <p className="text-sm text-slate-600">
-          <b className="text-emerald-600">{valid.length} baris valid</b>
-          {errors.length > 0 && <span> · <b className="text-rose-600">{errors.length} baris error</b> (dilewati)</span>}
+          <b className="text-emerald-600">{valid.length} baris masuk</b>
+          {errors.length > 0 && <span> · <b className="text-rose-600">{errors.length} dilewati</b></span>}
         </p>
         {errors.length > 0 && (
           <ul className="mt-2 max-h-28 space-y-1 overflow-y-auto rounded-xl bg-rose-50 p-2.5 text-xs text-rose-700">

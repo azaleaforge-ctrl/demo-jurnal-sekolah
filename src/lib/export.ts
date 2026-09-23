@@ -76,6 +76,31 @@ export function rekapFilename(tipe: RekapTipe, format: "pdf" | "xlsx", dari: str
   return `Rekap-${tipe === "guru" ? "Guru" : "Siswa"}-${p}.${format}`;
 }
 
+// "Waktu Isi" HH:MM dari created_at ("YYYY-MM-DD HH:mm:ss") — BACA SAJA,
+// tak pernah menulis/menimpa created_at. Kosong/tak valid → "00:00".
+export function waktuIsi(created_at?: string): string {
+  const m = /(\d{2}):(\d{2})/.exec(String(created_at || ""));
+  return m ? `${m[1]}:${m[2]}` : "00:00";
+}
+
+const createdAtOf = (f: FeedEntry): string | undefined =>
+  (f as unknown as { created_at?: string }).created_at;
+
+// Terbaru dulu: created_at desc → date desc → id desc (tiebreak deterministik).
+// Baca saja — tak pernah mutate/menimpa field apa pun.
+export function compareJournalNewest(a: FeedEntry, b: FeedEntry): number {
+  return String(createdAtOf(b) || "").localeCompare(String(createdAtOf(a) || ""))
+    || String(b.date || "").localeCompare(String(a.date || ""))
+    || String(b.id || "").localeCompare(String(a.id || ""));
+}
+
+// Aturan urut FINAL semua output: kelompok nama A–Z (locale id,
+// case-insensitive), di dalamnya entri terbaru dulu. Selalu menyalin —
+// input tak pernah dimutasi; created_at hanya dibaca.
+export function sortJournalRows(rows: FeedEntry[], nameOf: (f: FeedEntry) => unknown): FeedEntry[] {
+  return [...rows].sort((a, b) => byNameStr(nameOf(a), nameOf(b)) || compareJournalNewest(a, b));
+}
+
 export function filterRekap(
   feed: FeedEntry[], dari: string, sampai: string,
   flt: { tipe: RekapTipe; classId?: string; teacherId?: string },
@@ -88,11 +113,12 @@ export function filterRekap(
   if (tipe === "siswa" && !classId) throw new Error("Pilih kelas terlebih dahulu.");
   const cls = tipe === "siswa" && classId ? dir.classes.find((c) => c.id === classId) : undefined;
   const tch = tipe === "guru" && teacherId ? dir.teachers.find((t) => t.id === teacherId) : undefined;
-  return feed
+  const hit = feed
     .filter((f) => (!dari || f.date >= dari) && (!sampai || f.date <= sampai))
     .filter((f) => tipe !== "siswa" || !classId || f.class_id === classId || (!!cls && f.class === cls.name))
-    .filter((f) => tipe !== "guru" || !teacherId || (f as any).teacher_id === teacherId || (!!tch && f.teacher === tch.name))
-    .sort((a, b) => a.date.localeCompare(b.date));
+    .filter((f) => tipe !== "guru" || !teacherId || (f as any).teacher_id === teacherId || (!!tch && f.teacher === tch.name));
+  // Tertib final: nama A–Z, terbaru dulu (bukan tanggal menaik).
+  return sortJournalRows(hit, (f) => (tipe === "guru" ? f.teacher : f.class));
 }
 
 export function studentOf(id: string, students: ExportDir["students"] = defaultDir.students) {
@@ -215,7 +241,7 @@ function metaRow(ws: ExcelJS.Worksheet, n: number, lLabel: string, lVal: string,
   r.getCell(2).font = { size: 10 };
   r.getCell(6).value = rLabel;
   r.getCell(6).font = { bold: true, size: 10 };
-  ws.mergeCells(`G${n}:I${n}`);
+  ws.mergeCells(`G${n}:J${n}`);
   r.getCell(7).value = `: ${rVal}`;
   r.getCell(7).font = { size: 10 };
 }
@@ -248,25 +274,25 @@ function bodyRow(ws: ExcelJS.Worksheet, n: number, vals: (string | number)[], bo
 // Blok TTD 2 kolom: kiri (judul + nama) & kanan tanggal + Kepala Sekolah (+nama principal).
 function ttdExcel(ws: ExcelJS.Worksheet, n: number, leftTitle: string, leftName: string, rightName: string, dateStr: string) {
   ws.mergeCells(`A${n}:D${n}`);
-  ws.mergeCells(`F${n}:I${n}`);
+  ws.mergeCells(`F${n}:J${n}`);
   const r0 = ws.getRow(n);
   r0.getCell(1).value = "Mengetahui,";
   r0.getCell(6).value = dateStr;
   ws.mergeCells(`A${n + 1}:D${n + 1}`);
-  ws.mergeCells(`F${n + 1}:I${n + 1}`);
+  ws.mergeCells(`F${n + 1}:J${n + 1}`);
   const r1 = ws.getRow(n + 1);
   r1.getCell(1).value = leftTitle;
   r1.getCell(6).value = "Kepala Sekolah";
   const r4 = ws.getRow(n + 4);
   ws.mergeCells(`A${n + 4}:D${n + 4}`);
-  ws.mergeCells(`F${n + 4}:I${n + 4}`);
+  ws.mergeCells(`F${n + 4}:J${n + 4}`);
   r4.getCell(1).value = leftName;
   r4.getCell(1).font = { bold: true };
   r4.getCell(6).value = rightName;
   r4.getCell(6).font = { bold: true };
   const r5 = ws.getRow(n + 5);
   ws.mergeCells(`A${n + 5}:D${n + 5}`);
-  ws.mergeCells(`F${n + 5}:I${n + 5}`);
+  ws.mergeCells(`F${n + 5}:J${n + 5}`);
   r5.getCell(1).value = "______________________";
   r5.getCell(6).value = "______________________";
 }
@@ -292,6 +318,8 @@ function embedCell(wb: ExcelJS.Workbook, ws: ExcelJS.Worksheet, m: Media, col: n
 }
 
 export async function buildRekapExcel(o: RekapOpts & { rows: FeedEntry[] }): Promise<Uint8Array> {
+  // Tertib final di SEMUA output excel: nama A–Z, terbaru dulu.
+  o = { ...o, rows: sortJournalRows(o.rows, (f) => (o.tipe === "guru" ? f.teacher : f.class)) };
   const wb = new ExcelJS.Workbook();
   const dir = o.dir ?? defaultDir;
   const sch = dir.school;
@@ -302,53 +330,53 @@ export async function buildRekapExcel(o: RekapOpts & { rows: FeedEntry[] }): Pro
 
   if (o.tipe === "guru") {
     const ws = wb.addWorksheet("Laporan Jurnal");
-    ws.columns = [{ width: 5 }, { width: 22 }, { width: 18 }, { width: 14 }, { width: 22 }, { width: 28 }, { width: 32 }, { width: 16 }, { width: 16 }];
-    kop3(ws, sch.name, 9);
-    judulRow(ws, 4, "LAPORAN JURNAL KEGIATAN BELAJAR MENGAJAR", 9);
+    ws.columns = [{ width: 5 }, { width: 22 }, { width: 12 }, { width: 18 }, { width: 14 }, { width: 22 }, { width: 28 }, { width: 32 }, { width: 16 }, { width: 16 }];
+    kop3(ws, sch.name, 10);
+    judulRow(ws, 4, "LAPORAN JURNAL KEGIATAN BELAJAR MENGAJAR", 10);
     metaRow(ws, 5, "Tahun Pelajaran", `${sch.academicYear}`, "Guru Pengampu", guruName);
     metaRow(ws, 6, "Semester", sch.semester, "Periode", metaPeriode(o.dari, o.sampai));
     if (o.periode === "bulanan") {
       // Bulanan guru = FULL DETAIL sebulan penuh + TOTAL di akhir (kontrak §3E).
-      headerRow(ws, 7, ["No", "Hari & Tanggal", "Jam Pelaksanaan", "Kelas", "Nama Guru", "Materi Pembelajaran", "Catatan", "Foto Dokumentasi", "Tanda Tangan Guru"]);
+      headerRow(ws, 7, ["No", "Hari & Tanggal", "Waktu Isi", "Jam Pelaksanaan", "Kelas", "Nama Guru", "Materi Pembelajaran", "Catatan", "Foto Dokumentasi", "Tanda Tangan Guru"]);
       const mediaB = await buildGuruMedia(o.rows, { onProgress: o.onProgress });
       o.rows.forEach((j, i) => {
         const r = 8 + i;
         bodyRow(ws, r, [
-          i + 1, hariTanggal(j.date), jamRange(j.schedule), j.class, j.teacher,
+          i + 1, hariTanggal(j.date), waktuIsi(createdAtOf(j)), jamRange(j.schedule), j.class, j.teacher,
           j.material || "-", j.notes || "-",
           mediaB[i].foto ? "" : j.photo ? "Ada" : "-", mediaB[i].ttd ? "" : j.signature ? "Ada" : "-",
         ], false, 64);
-        embedCell(wb, ws, mediaB[i].foto, 7, r, 108, 64);
-        embedCell(wb, ws, mediaB[i].ttd, 8, r, 108, 64);
+        embedCell(wb, ws, mediaB[i].foto, 8, r, 108, 64);
+        embedCell(wb, ws, mediaB[i].ttd, 9, r, 108, 64);
       });
       const trB = 8 + o.rows.length;
-      bodyRow(ws, trB, [`TOTAL (${o.rows.length} jurnal)`, "", "", "", "", "", "", "", ""], true, 20);
+      bodyRow(ws, trB, [`TOTAL (${o.rows.length} jurnal)`, "", "", "", "", "", "", "", "", ""], true, 20);
       ttdExcel(ws, trB + 2, "Guru Mata Pelajaran", guruName, principal, dateStr);
       ws.views = [{ state: "frozen", ySplit: 7 }];
-      ws.autoFilter = { from: "A7", to: "I7" };
+      ws.autoFilter = { from: "A7", to: "J7" };
     } else {
-    headerRow(ws, 7, ["No", "Hari & Tanggal", "Jam Pelaksanaan", "Kelas", "Nama Guru", "Materi Pembelajaran", "Catatan", "Foto Dokumentasi", "Tanda Tangan Guru"]);
+    headerRow(ws, 7, ["No", "Hari & Tanggal", "Waktu Isi", "Jam Pelaksanaan", "Kelas", "Nama Guru", "Materi Pembelajaran", "Catatan", "Foto Dokumentasi", "Tanda Tangan Guru"]);
     const media = await buildGuruMedia(o.rows, { onProgress: o.onProgress });
       o.rows.forEach((j, i) => {
         const r = 8 + i;
         bodyRow(ws, r, [
-          i + 1, hariTanggal(j.date), jamRange(j.schedule), j.class, j.teacher,
+          i + 1, hariTanggal(j.date), waktuIsi(createdAtOf(j)), jamRange(j.schedule), j.class, j.teacher,
           j.material || "-", j.notes || "-",
           media[i].foto ? "" : j.photo ? "Ada" : "-", media[i].ttd ? "" : j.signature ? "Ada" : "-",
         ], false, 64);
-        embedCell(wb, ws, media[i].foto, 7, r, 108, 64);
-        embedCell(wb, ws, media[i].ttd, 8, r, 108, 64);
+        embedCell(wb, ws, media[i].foto, 8, r, 108, 64);
+        embedCell(wb, ws, media[i].ttd, 9, r, 108, 64);
       });
       ttdExcel(ws, 9 + o.rows.length, "Guru Mata Pelajaran", guruName, principal, dateStr);
       ws.views = [{ state: "frozen", ySplit: 7 }];
-      ws.autoFilter = { from: "A7", to: "I7" };
+      ws.autoFilter = { from: "A7", to: "J7" };
     }
     printSetup(ws);
   } else {
     const ws = wb.addWorksheet("Rekap Siswa");
-    ws.columns = [{ width: 5 }, { width: 22 }, { width: 14 }, { width: 14 }, { width: 26 }, { width: 7 }, { width: 7 }, { width: 7 }, { width: 7 }];
-    kop3(ws, sch.name, 9);
-    judulRow(ws, 4, "LAPORAN REKAPITULASI KEHADIRAN SISWA", 9);
+    ws.columns = [{ width: 5 }, { width: 22 }, { width: 12 }, { width: 14 }, { width: 14 }, { width: 26 }, { width: 7 }, { width: 7 }, { width: 7 }, { width: 7 }];
+    kop3(ws, sch.name, 10);
+    judulRow(ws, 4, "LAPORAN REKAPITULASI KEHADIRAN SISWA", 10);
     metaRow(ws, 5, "Tahun Pelajaran", `${sch.academicYear}`, "Kelas", kelasMeta(o, o.rows));
     metaRow(ws, 6, "Semester", sch.semester, "Periode", metaPeriode(o.dari, o.sampai));
     metaRow(ws, 7, "", "", "Wali Kelas", waliOf(o, o.rows));
@@ -366,24 +394,25 @@ export async function buildRekapExcel(o: RekapOpts & { rows: FeedEntry[] }): Pro
     });
     const perSiswaRows = [...perSiswa.values()].sort(byName());
     if (o.periode === "bulanan") {
-      // Tabel ANGKA rekap: No|NISN|Nama|H|S|I|A|%Hadir + TOTAL.
-      headerRow(ws, r, ["No", "NISN", "Nama", "H", "S", "I", "A", "%Hadir", ""]);
+      // Tabel ANGKA rekap: No|NISN|Nama|Waktu Isi|H|S|I|A|%Hadir + TOTAL.
+      // Agregat per siswa tak punya satu waktu isi → "-".
+      headerRow(ws, r, ["No", "NISN", "Nama", "Waktu Isi", "H", "S", "I", "A", "%Hadir", ""]);
       ws.views = [{ state: "frozen", ySplit: r }];
-      ws.autoFilter = { from: `A${r}`, to: `H${r}` };
+      ws.autoFilter = { from: `A${r}`, to: `I${r}` };
       r++;
       let no = 1;
       const t = { h: 0, s: 0, i: 0, a: 0 };
       perSiswaRows.forEach((g) => {
         const tot = g.h + g.s + g.i + g.a;
         t.h += g.h; t.s += g.s; t.i += g.i; t.a += g.a;
-        bodyRow(ws, r++, [no++, g.nisn, g.name, g.h, g.s, g.i, g.a, tot ? `${Math.round((g.h / tot) * 100)}%` : "-", ""], false, 20);
+        bodyRow(ws, r++, [no++, g.nisn, g.name, "-", g.h, g.s, g.i, g.a, tot ? `${Math.round((g.h / tot) * 100)}%` : "-", ""], false, 20);
       });
       const tTot = t.h + t.s + t.i + t.a;
-      bodyRow(ws, r++, ["TOTAL", "", "", t.h, t.s, t.i, t.a, tTot ? `${Math.round((t.h / tTot) * 100)}%` : "-", ""], true, 20);
+      bodyRow(ws, r++, ["TOTAL", "", "", "-", t.h, t.s, t.i, t.a, tTot ? `${Math.round((t.h / tTot) * 100)}%` : "-", ""], true, 20);
     } else {
-    headerRow(ws, r, ["No", "Hari & Tanggal", "Kelas", "NISN", "Nama", "H", "S", "I", "A"]);
+    headerRow(ws, r, ["No", "Hari & Tanggal", "Waktu Isi", "Kelas", "NISN", "Nama", "H", "S", "I", "A"]);
     ws.views = [{ state: "frozen", ySplit: r }];
-    ws.autoFilter = { from: `A${r}`, to: `I${r}` };
+    ws.autoFilter = { from: `A${r}`, to: `J${r}` };
     r++;
     let no = 1;
     const withAtt = o.rows.filter((j) => (j.attendances || []).length > 0);
@@ -393,7 +422,7 @@ export async function buildRekapExcel(o: RekapOpts & { rows: FeedEntry[] }): Pro
         .sort((a, b) => byNameStr(a.nm, b.nm))
         .forEach(({ at, nm }) => {
         const st = studentOf(at.student_id, dir.students);
-        bodyRow(ws, r++, [no++, hariTanggal(j.date), j.class, st?.nisn || "-", nm,
+        bodyRow(ws, r++, [no++, hariTanggal(j.date), waktuIsi(createdAtOf(j)), j.class, st?.nisn || "-", nm,
           at.status === "hadir" ? "✓" : "", at.status === "sakit" ? "✓" : "",
           at.status === "izin" ? "✓" : "", at.status === "alpha" ? "✓" : ""], false, 20);
       });
@@ -401,13 +430,13 @@ export async function buildRekapExcel(o: RekapOpts & { rows: FeedEntry[] }): Pro
     const rest = o.rows.filter((j) => !(j.attendances || []).length);
     if (rest.length) {
       r++;
-      ws.mergeCells(`A${r}:I${r}`);
-      bodyRow(ws, r++, ["REKAP PER JURNAL (AGREGAT)", "", "", "", "", "", "", "", ""], true);
-      headerRow(ws, r, ["No", "Hari & Tanggal", "Kelas", "Guru", "H", "S", "I", "A", "Total"]);
+      ws.mergeCells(`A${r}:J${r}`);
+      bodyRow(ws, r++, ["REKAP PER JURNAL (AGREGAT)", "", "", "", "", "", "", "", "", ""], true);
+      headerRow(ws, r, ["No", "Hari & Tanggal", "Waktu Isi", "Kelas", "Guru", "H", "S", "I", "A", "Total"]);
       r++;
       rest.forEach((j, i) => {
         const t = j.stats.hadir + j.stats.sakit + j.stats.izin + j.stats.alpha;
-        bodyRow(ws, r++, [i + 1, hariTanggal(j.date), j.class, j.teacher, j.stats.hadir, j.stats.sakit, j.stats.izin, j.stats.alpha, t], false, 20);
+        bodyRow(ws, r++, [i + 1, hariTanggal(j.date), waktuIsi(createdAtOf(j)), j.class, j.teacher, j.stats.hadir, j.stats.sakit, j.stats.izin, j.stats.alpha, t], false, 20);
       });
     }
     }
@@ -431,7 +460,7 @@ export async function buildRekapExcel(o: RekapOpts & { rows: FeedEntry[] }): Pro
     });
     let r2 = 7;
     const gt = { h: 0, s: 0, i: 0, a: 0 };
-    [...byCls.entries()].sort(([a], [b]) => a.localeCompare(b)).forEach(([name, g]) => {
+    [...byCls.entries()].sort(([a], [b]) => byNameStr(a, b)).forEach(([name, g]) => {
       const t = g.h + g.s + g.i + g.a;
       gt.h += g.h; gt.s += g.s; gt.i += g.i; gt.a += g.a;
       bodyRow(ws2, r2++, [name, g.h, g.s, g.i, g.a, t ? `${Math.round((g.h / t) * 100)}%` : "-"], false, 20);
@@ -503,10 +532,10 @@ function footers(doc: jsPDF) {
   }
 }
 
-// Satu definisi kolom + grid untuk SEMUA tabel guru 9-kolom (head & body selalu sejajar).
+// Satu definisi kolom + grid untuk SEMUA tabel guru 10-kolom (head & body selalu sejajar).
 const GURU_COLS = {
-  0: { cellWidth: 8 }, 1: { cellWidth: 30 }, 2: { cellWidth: 24 }, 3: { cellWidth: 22 },
-  4: { cellWidth: 30 }, 5: { cellWidth: 44 }, 6: { cellWidth: 44 }, 7: { cellWidth: 36 }, 8: { cellWidth: 39 },
+  0: { cellWidth: 8 }, 1: { cellWidth: 28 }, 2: { cellWidth: 14 }, 3: { cellWidth: 20 }, 4: { cellWidth: 20 },
+  5: { cellWidth: 26 }, 6: { cellWidth: 40 }, 7: { cellWidth: 40 }, 8: { cellWidth: 32 }, 9: { cellWidth: 34 },
 };
 // Garis grid penuh di SEMUA sel termasuk header (bukan hanya body).
 const GRID = { lineWidth: 0.3, lineColor: [70, 70, 70] as [number, number, number] };
@@ -544,7 +573,7 @@ function guruDetailPages(
     autoTable(doc, {
       startY: p === 0 ? startY : 14,
       margin: TABLE_MARGIN,
-      head: [["No", "Hari & Tanggal", "Jam Pelaksanaan", "Kelas", "Nama Guru", "Materi Pembelajaran", "Catatan", "Foto Dokumentasi", "Tanda Tangan Guru"]],
+      head: [["No", "Hari & Tanggal", "Waktu Isi", "Jam Pelaksanaan", "Kelas", "Nama Guru", "Materi Pembelajaran", "Catatan", "Foto Dokumentasi", "Tanda Tangan Guru"]],
       body: body.slice(off, off + ROWS_PER_PAGE),
       styles: { ...BODY_TXT, minCellHeight: 24 },
       bodyStyles: BODY_CENTER,
@@ -554,7 +583,7 @@ function guruDetailPages(
       didDrawCell: !media ? undefined : (d: any) => {
         if (d.section !== "body") return;
         const gi = off + d.row.index;
-        const m = d.column.index === 7 ? media[gi]?.foto : d.column.index === 8 ? media[gi]?.ttd : null;
+        const m = d.column.index === 8 ? media[gi]?.foto : d.column.index === 9 ? media[gi]?.ttd : null;
         if (!m) return;
         drawContain(doc, m, d.cell.x + 2, d.cell.y + 2, d.cell.width - 4, d.cell.height - 4);
       },
@@ -563,6 +592,8 @@ function guruDetailPages(
 }
 
 export function buildRekapPdf(o: RekapOpts & { rows: FeedEntry[] }): Blob {
+  // Tertib final di SEMUA output pdf: nama A–Z, terbaru dulu.
+  o = { ...o, rows: sortJournalRows(o.rows, (f) => (o.tipe === "guru" ? f.teacher : f.class)) };
   const sch = (o.dir ?? defaultDir).school;
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const guruName = o.tipe === "guru" ? guruPengampu(o, o.rows) : o.rows[0]?.teacher || "-";
@@ -583,17 +614,17 @@ export function buildRekapPdf(o: RekapOpts & { rows: FeedEntry[] }): Blob {
       // Bulanan guru = FULL DETAIL sebulan penuh + TOTAL di akhir (kontrak §3E).
       guruDetailPages(doc, [
         ...o.rows.map((j, i) => [
-          i + 1, hariTanggal(j.date), jamRange(j.schedule), j.class, j.teacher,
+          i + 1, hariTanggal(j.date), waktuIsi(createdAtOf(j)), jamRange(j.schedule), j.class, j.teacher,
           j.material || "-", j.notes || "-", j.photo ? "Ada" : "-", j.signature ? "Ada" : "-",
         ]),
-        [`TOTAL (${o.rows.length} jurnal)`, "", "", "", "", "", "", "", ""],
+        [`TOTAL (${o.rows.length} jurnal)`, "", "", "", "", "", "", "", "", ""],
       ], null, y + 4);
       ttdPdf(doc, (doc as any).lastAutoTable.finalY + 8, "Guru Mata Pelajaran", guruName, principal, dateStr);
       footers(doc);
       return doc.output("blob");
     }
     guruDetailPages(doc, o.rows.map((j, i) => [
-      i + 1, hariTanggal(j.date), jamRange(j.schedule), j.class, j.teacher,
+      i + 1, hariTanggal(j.date), waktuIsi(createdAtOf(j)), jamRange(j.schedule), j.class, j.teacher,
       j.material || "-", j.notes || "-", j.photo ? "Ada" : "-", j.signature ? "Ada" : "-",
     ]), null, y + 4);
     ttdPdf(doc, (doc as any).lastAutoTable.finalY + 8, "Guru Mata Pelajaran", guruName, principal, dateStr);
@@ -628,37 +659,38 @@ export function buildRekapPdf(o: RekapOpts & { rows: FeedEntry[] }): Blob {
   });
   const perSiswaRows = [...perSiswa.values()].sort(byName());
   if (o.periode === "bulanan") {
-    // Tabel ANGKA rekap: No|NISN|Nama|H|S|I|A|%Hadir + TOTAL.
+    // Tabel ANGKA rekap: No|NISN|Nama|Waktu Isi|H|S|I|A|%Hadir + TOTAL.
+    // Agregat per siswa tak punya satu waktu isi → "-".
     const t = { h: 0, s: 0, i: 0, a: 0 };
     const body = perSiswaRows.map((g, i) => {
       const tot = g.h + g.s + g.i + g.a;
       t.h += g.h; t.s += g.s; t.i += g.i; t.a += g.a;
-      return [i + 1, g.nisn, g.name, g.h, g.s, g.i, g.a, tot ? `${Math.round((g.h / tot) * 100)}%` : "-"];
+      return [i + 1, g.nisn, g.name, "-", g.h, g.s, g.i, g.a, tot ? `${Math.round((g.h / tot) * 100)}%` : "-"];
     });
     const tTot = t.h + t.s + t.i + t.a;
-    body.push(["TOTAL", "", "", t.h, t.s, t.i, t.a, tTot ? `${Math.round((t.h / tTot) * 100)}%` : "-"]);
+    body.push(["TOTAL", "", "", "-", t.h, t.s, t.i, t.a, tTot ? `${Math.round((t.h / tTot) * 100)}%` : "-"]);
     autoTable(doc, {
       startY: y + 4,
       margin: TABLE_MARGIN,
-      head: [["No", "NISN", "Nama", "H", "S", "I", "A", "%Hadir"]],
+      head: [["No", "NISN", "Nama", "Waktu Isi", "H", "S", "I", "A", "%Hadir"]],
       body,
       styles: BODY_TXT,
       bodyStyles: BODY_CENTER,
       headStyles: HEAD_TXT,
       theme: "grid",
-      columnStyles: { 0: { cellWidth: 12 }, 1: { cellWidth: 28 }, 3: { cellWidth: 14 }, 4: { cellWidth: 14 }, 5: { cellWidth: 14 }, 6: { cellWidth: 14 }, 7: { cellWidth: 20 } },
+      columnStyles: { 0: { cellWidth: 12 }, 1: { cellWidth: 28 }, 3: { cellWidth: 16 }, 4: { cellWidth: 14 }, 5: { cellWidth: 14 }, 6: { cellWidth: 14 }, 7: { cellWidth: 14 }, 8: { cellWidth: 20 } },
     });
   } else {
   autoTable(doc, {
     startY: y + 4,
     margin: TABLE_MARGIN,
-    head: [["No", "Hari & Tanggal", "Kelas", "NISN", "Nama", "H", "S", "I", "A"]],
+    head: [["No", "Hari & Tanggal", "Waktu Isi", "Kelas", "NISN", "Nama", "H", "S", "I", "A"]],
     body: o.rows.filter((j) => (j.attendances || []).length > 0).flatMap((j) => (j.attendances || [])
       .map((at) => ({ at, nm: studentOf(at.student_id, dir.students)?.name || at.student_id }))
       .sort((a, b) => byNameStr(a.nm, b.nm))
       .map(({ at, nm }) => {
       const st = studentOf(at.student_id, dir.students);
-      return ["", hariTanggal(j.date), j.class, st?.nisn || "-", nm,
+      return ["", hariTanggal(j.date), waktuIsi(createdAtOf(j)), j.class, st?.nisn || "-", nm,
         at.status === "hadir" ? "✓" : "", at.status === "sakit" ? "✓" : "",
         at.status === "izin" ? "✓" : "", at.status === "alpha" ? "✓" : ""];
     })).map((r, i) => [i + 1, ...r.slice(1)]),
@@ -666,23 +698,23 @@ export function buildRekapPdf(o: RekapOpts & { rows: FeedEntry[] }): Blob {
     bodyStyles: BODY_CENTER,
     headStyles: HEAD_TXT,
     theme: "grid",
-    columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 38 }, 2: { cellWidth: 24 }, 3: { cellWidth: 24 }, 5: { cellWidth: 10 }, 6: { cellWidth: 10 }, 7: { cellWidth: 10 }, 8: { cellWidth: 10 } },
+    columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 34 }, 2: { cellWidth: 16 }, 3: { cellWidth: 22 }, 4: { cellWidth: 22 }, 6: { cellWidth: 10 }, 7: { cellWidth: 10 }, 8: { cellWidth: 10 }, 9: { cellWidth: 10 } },
   });
   const rest = o.rows.filter((j) => !(j.attendances || []).length);
   if (rest.length) {
     autoTable(doc, {
       startY: (doc as any).lastAutoTable.finalY + 6,
       margin: TABLE_MARGIN,
-      head: [["No", "Hari & Tanggal", "Kelas", "Guru", "H", "S", "I", "A", "Total"]],
+      head: [["No", "Hari & Tanggal", "Waktu Isi", "Kelas", "Guru", "H", "S", "I", "A", "Total"]],
       body: rest.map((j, i) => {
         const t = j.stats.hadir + j.stats.sakit + j.stats.izin + j.stats.alpha;
-        return [i + 1, hariTanggal(j.date), j.class, j.teacher, j.stats.hadir, j.stats.sakit, j.stats.izin, j.stats.alpha, t];
+        return [i + 1, hariTanggal(j.date), waktuIsi(createdAtOf(j)), j.class, j.teacher, j.stats.hadir, j.stats.sakit, j.stats.izin, j.stats.alpha, t];
       }),
       styles: BODY_TXT,
       bodyStyles: BODY_CENTER,
       headStyles: HEAD_TXT,
       theme: "grid",
-      columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 38 }, 2: { cellWidth: 24 }, 3: { cellWidth: 30 }, 5: { cellWidth: 10 }, 6: { cellWidth: 10 }, 7: { cellWidth: 10 }, 8: { cellWidth: 14 } },
+      columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 34 }, 2: { cellWidth: 16 }, 3: { cellWidth: 22 }, 4: { cellWidth: 28 }, 5: { cellWidth: 10 }, 6: { cellWidth: 10 }, 7: { cellWidth: 10 }, 8: { cellWidth: 10 }, 9: { cellWidth: 14 } },
     });
   }
   }
@@ -694,7 +726,7 @@ export function buildRekapPdf(o: RekapOpts & { rows: FeedEntry[] }): Blob {
     byCls.set(j.class, g);
   });
   const gt = { h: 0, s: 0, i: 0, a: 0 };
-  const gtBody: (string | number)[][] = [...byCls.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([name, g]) => {
+  const gtBody: (string | number)[][] = [...byCls.entries()].sort(([a], [b]) => byNameStr(a, b)).map(([name, g]) => {
     const t = g.h + g.s + g.i + g.a;
     gt.h += g.h; gt.s += g.s; gt.i += g.i; gt.a += g.a;
     return [name, g.h, g.s, g.i, g.a, t ? `${Math.round((g.h / t) * 100)}%` : "-"];
@@ -805,6 +837,8 @@ export async function downloadRekap(o: RekapOpts & { format: "pdf" | "xlsx" }): 
 // PDF guru butuh preload gambar → varian async; fallback sinkron bila preload gagal total.
 export async function buildRekapPdfAsync(o: RekapOpts & { rows: FeedEntry[] }): Promise<Blob> {
   if (o.tipe !== "guru") return buildRekapPdf(o);
+  // Tertib final: nama A–Z, terbaru dulu (berlaku juga untuk varian embed gambar).
+  o = { ...o, rows: sortJournalRows(o.rows, (f) => f.teacher) };
   const sch = (o.dir ?? defaultDir).school;
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const guruName = guruPengampu(o, o.rows);
@@ -821,11 +855,11 @@ export async function buildRekapPdfAsync(o: RekapOpts & { rows: FeedEntry[] }): 
     const mediaB = await buildGuruMedia(o.rows, { onProgress: o.onProgress });
     guruDetailPages(doc, [
       ...o.rows.map((j, i) => [
-        i + 1, hariTanggal(j.date), jamRange(j.schedule), j.class, j.teacher,
+        i + 1, hariTanggal(j.date), waktuIsi(createdAtOf(j)), jamRange(j.schedule), j.class, j.teacher,
         j.material || "-", j.notes || "-",
         mediaB[i].foto ? " " : j.photo ? "Ada" : "-", mediaB[i].ttd ? " " : j.signature ? "Ada" : "-",
       ]),
-      [`TOTAL (${o.rows.length} jurnal)`, "", "", "", "", "", "", "", ""],
+      [`TOTAL (${o.rows.length} jurnal)`, "", "", "", "", "", "", "", "", ""],
     ], mediaB, y + 4);
     ttdPdf(doc, (doc as any).lastAutoTable.finalY + 8, "Guru Mata Pelajaran", guruName, principal, dateStr);
     footers(doc);
@@ -833,7 +867,7 @@ export async function buildRekapPdfAsync(o: RekapOpts & { rows: FeedEntry[] }): 
   }
   const media = await buildGuruMedia(o.rows, { onProgress: o.onProgress });
   guruDetailPages(doc, o.rows.map((j, i) => [
-    i + 1, hariTanggal(j.date), jamRange(j.schedule), j.class, j.teacher,
+    i + 1, hariTanggal(j.date), waktuIsi(createdAtOf(j)), jamRange(j.schedule), j.class, j.teacher,
     j.material || "-", j.notes || "-",
     media[i].foto ? " " : j.photo ? "Ada" : "-", media[i].ttd ? " " : j.signature ? "Ada" : "-",
   ]), media, y + 4);

@@ -12,8 +12,8 @@ import { journals } from "@/src/lib/mock";
 import { Lightbox } from "@/src/components/lightbox";
 import { subscribeFeedJournals, useDirectory, getSetting, mockSetting, rewriteAttendances, type Doc } from "@/src/lib/db";
 import { downloadRekap, type ExportDir } from "@/src/lib/export";
-import { byNewest, mapJournalEntry, resolveStats, type FeedEntry } from "@/src/lib/feed";
-import { cn, byName } from "@/src/lib/utils";
+import { mapJournalEntry, resolveStats, type FeedEntry } from "@/src/lib/feed";
+import { cn, byName, todayID } from "@/src/lib/utils";
 import type { SavedJournal } from "../jurnal-baru/page";
 
 type Row = Omit<SavedJournal, "teacher"> & { teacher: string };
@@ -22,14 +22,39 @@ type AttStatus = "hadir" | "sakit" | "izin" | "alpha";
 const tone = (s: string) => (s === "hadir" ? "green" : s === "izin" ? "blue" : "amber");
 const ATT_LABEL: Record<AttStatus, string> = { hadir: "Hadir", sakit: "Sakit", izin: "Izin", alpha: "Alpha" };
 
+// Navigasi hari: ‹ date-picker › + tombol "Hari ini" (tak bisa maju melewati hari ini).
+function DayNav({ tanggal, today, onChange, onShift }: {
+  tanggal: string; today: string;
+  onChange: (t: string) => void; onShift: (iso: string, d: number) => string;
+}) {
+  return (
+    <div className="flex min-w-0 flex-1 items-end gap-1 sm:max-w-[320px] sm:flex-none">
+      <button onClick={() => onChange(onShift(tanggal, -1))} aria-label="Hari sebelumnya" className="grid size-11 shrink-0 place-items-center rounded-xl border border-slate-200 text-base font-bold text-slate-600 hover:bg-slate-50">‹</button>
+      <label className="min-w-0 flex-1 text-sm font-semibold text-slate-700">Tanggal
+        <input type="date" value={tanggal} max={today} onChange={(e) => e.target.value && onChange(e.target.value)} className="mt-1.5 block w-full max-w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal" />
+      </label>
+      <button onClick={() => onChange(onShift(tanggal, 1))} aria-label="Hari berikutnya" disabled={tanggal >= today} className="grid size-11 shrink-0 place-items-center rounded-xl border border-slate-200 text-base font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-40">›</button>
+      {tanggal !== today && (
+        <button onClick={() => onChange(today)} className="shrink-0 rounded-xl bg-brand-50 px-3 py-2.5 text-xs font-bold text-brand-600 hover:bg-brand-100">Hari ini</button>
+      )}
+    </div>
+  );
+}
+
 export default function RiwayatPage() {
   const { user } = useAuth();
+  const userId = user?.id;
+  const userName = user?.name;
+  const today = todayID();
   const dir = useDirectory();
+  const dirLoading = dir.loading;
+  // Mode HARIAN: default hari ini, query sempit date==tanggal (payload kecil, tanpa loop/kedip).
+  const [tanggal, setTanggal] = useState(today);
   const [mine, setMine] = useState<Row[]>([]);
+  const [mineReady, setMineReady] = useState(false);
   const [feedRaw, setFeedRaw] = useState<{ js: Doc[]; atts: Doc[] } | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [demo, setDemo] = useState(false);
   const [zoom, setZoom] = useState<{ src: string; label: string } | null>(null);
-  const [bulan, setBulan] = useState("");
   const [expBusy, setExpBusy] = useState(false);
   const [expProg, setExpProg] = useState("");
   const [sch, setSch] = useState(mockSetting());
@@ -51,7 +76,8 @@ export default function RiwayatPage() {
     students: dir.students.map((s) => ({ id: s.id, nisn: s.nisn, name: s.name, class_id: s.class_id })),
     classes: dir.classes.map((c) => ({ id: c.id, name: c.name, wali: (c as any).wali })),
     teachers: dir.users.filter((u) => u.role === "guru").map((t) => ({ id: t.id, name: t.name })),
-  }), [dir, sch]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [dir.students, dir.classes, dir.users, sch]);
 
   useEffect(() => {
     getSetting()
@@ -65,75 +91,97 @@ export default function RiwayatPage() {
       setMine(Array.isArray(arr) ? arr : []);
     } catch {
       setMine([]);
+    } finally {
+      setMineReady(true);
     }
   }, []);
   useEffect(() => { reloadMine(); }, [reloadMine]);
 
-  // Realtime: jurnal milik guru — tulis di HP langsung tampil di desktop.
+  // Geser tanggal YYYY-MM-DD ±n hari (navigasi hari).
+  function shiftDay(iso: string, d: number) {
+    const [y, m, dd] = iso.split("-").map(Number);
+    const dt = new Date(y, m - 1, dd);
+    dt.setDate(dt.getDate() + d);
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}`;
+  }
+
+  // Realtime sempit: 1 hari saja — tulis di HP langsung tampil di desktop.
+  // Deps stabil (primitif): tanpa objek baru, tanpa setLoading berulang, toast demo sekali.
   useEffect(() => {
-    if (!user?.id) { setFeedRaw(null); setLoading(false); return; }
-    setLoading(true);
+    if (!userId || dirLoading) return;
     let on = true;
     let unsub: (() => void) | null = null;
     try {
-      unsub = subscribeFeedJournals([["teacher_id", "==", user.id]],
-        (js, atts) => { if (!on) return; setFeedRaw({ js, atts }); setLoading(false); },
-        () => { if (!on) return; setFeedRaw(null); setLoading(false); if (!toastRef.current) { toastRef.current = true; toast.info("Mode demo — memakai data lokal."); } });
+      unsub = subscribeFeedJournals([["date", "==", tanggal]],
+        (js, atts) => { if (on) setFeedRaw({ js, atts }); },
+        () => { if (!on) return; setFeedRaw(null); setDemo(true); if (!toastRef.current) { toastRef.current = true; toast.info("Mode demo — memakai data lokal."); } });
     } catch {
+      if (!on) return;
       setFeedRaw(null);
-      setLoading(false);
+      setDemo(true);
       if (!toastRef.current) { toastRef.current = true; toast.info("Mode demo — memakai data lokal."); }
     }
     return () => { on = false; unsub?.(); };
-  }, [user?.id]);
+  }, [userId, dirLoading, tanggal]);
 
   const dirLists = useMemo(() => ({
     classes: dir.classes, subjects: dir.subjects, users: dir.users,
     materials: dir.materials, schedules: dir.schedules,
-  }), [dir]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [dir.classes, dir.subjects, dir.users, dir.materials, dir.schedules]);
 
+  // Hanya jurnal milik guru pada tanggal terpilih (filter guru di client — query tetap 1 field).
   const remote: Row[] = useMemo(() => {
     if (!feedRaw) return [];
     const seen = new Set(mine.map((m) => m.id));
     return feedRaw.js
       .filter((j) => !seen.has(j.id))
-      .map((j) => ({ ...mapJournalEntry(j, dirLists, feedRaw.atts), teacher: user?.name || "Saya" } as Row));
-  }, [feedRaw, mine, dirLists, user?.name]);
+      .filter((j) => (j.date || "") === tanggal)
+      .filter((j) => (userId && (j as any).teacher_id === userId) || ((j as any).teacher === userName))
+      .map((j) => ({ ...mapJournalEntry(j, dirLists, feedRaw.atts), teacher: userName || "Saya" } as Row));
+  }, [feedRaw, mine, dirLists, tanggal, userId, userName]);
+
+  // created_at per jurnal (otomatis saat dibuat; ubah absensi tak meresetnya).
+  // "YYYY-MM-DD HH:mm:ss" → "HH:MM"; kosong → "" (badge disembunyikan).
+  const createdMap = useMemo(() => new Map((feedRaw?.js || []).map((j) => [j.id, String((j as any).created_at || "")])), [feedRaw]);
+  const dibuat = (r: { id: string }) => createdMap.get(r.id) ?? String((r as any).created_at || "");
+  const jamIsi = (created: string) => (created.split(" ")[1] || "").slice(0, 5);
+
+  // Skeleton hanya sebelum payload pertama; ganti tanggal update diam-diam.
+  const ready = mineReady && (feedRaw !== null || demo);
 
   const rows: Row[] = useMemo(() => {
-    const fallback = mine.length || remote.length ? [] : journals.map((j) => ({
-      ...j, teacher_status: "hadir" as const, leave_note: undefined,
-      sick_letter_name: undefined, sick_letter_note: undefined,
-    }));
+    const fallback = mine.length || remote.length || !demo
+      ? []
+      : journals.filter((j) => (j.date || "") === tanggal).map((j) => ({
+          ...j, teacher_status: "hadir" as const, leave_note: undefined,
+          sick_letter_name: undefined, sick_letter_note: undefined,
+        }));
     return [...mine, ...remote, ...fallback]
+      .filter((r: any) => (r.date || "") === tanggal)
       .map((r: any) => ({ ...r, stats: resolveStats(r.attendances, r.stats) }))
-      .sort(byNewest);
-  }, [mine, remote]);
+      // Terbaru di atas: created_at desc, fallback date desc, lalu id.
+      .sort((a: any, b: any) =>
+        String(createdMap.get(a.id) ?? a.created_at ?? "").localeCompare(String(createdMap.get(b.id) ?? b.created_at ?? "")) ||
+        String(b.date || "").localeCompare(String(a.date || "")) ||
+        String(b.id || "").localeCompare(String(a.id || "")));
+  }, [mine, remote, demo, tanggal, createdMap]);
 
-  // Lingkup tampil default bulan berjalan + "Muat lagi" mundur per bulan.
-  const [since, setSince] = useState(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
-  });
-  const visible = useMemo(() => rows.filter((r) => !r.date || r.date >= since), [rows, since]);
-  function muatLama() {
-    const [y, m] = since.split("-").map(Number);
-    const d = new Date(y, m - 2, 1);
-    setSince(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`);
-  }
+  // Mode harian: yang tampil = hari terpilih saja (tanpa "muat lagi" bulanan).
+  const visible = rows;
 
-  // Export PDF benaran (template formal identik admin), ter-filter guru pemilik.
+  // Export PDF harian (template formal identik admin), ter-filter guru pemilik + tanggal.
   async function exportPdf() {
-    if (!user?.id) return toast.error("Masuk terlebih dahulu.");
+    if (!userId) return toast.error("Masuk terlebih dahulu.");
     if (expBusy) return;
     setExpBusy(true);
     setExpProg("");
     try {
-      const ymd = (b: string) => { const [y, m] = b.split("-").map(Number); return new Date(y, m, 0).getDate(); };
       const mode = await downloadRekap({
         tipe: "guru", format: "pdf",
-        dari: bulan ? `${bulan}-01` : "", sampai: bulan ? `${bulan}-${ymd(bulan)}` : "",
-        teacherId: user.id, feed: rows as unknown as FeedEntry[], dir: xdir,
+        dari: tanggal, sampai: tanggal,
+        teacherId: userId, feed: rows as unknown as FeedEntry[], dir: xdir,
         onProgress: (d, t) => setExpProg(`${d}/${t}`),
       });
       toast.success(mode === "remote" ? "File dari server diunduh." : "File rekap diunduh (dibuat lokal).");
@@ -196,10 +244,11 @@ export default function RiwayatPage() {
       : "Mode demo — absensi diperbarui lokal.");
   }
 
+  const loading = !ready;
   if (loading) {
     return (
       <Guard roles={["guru"]}>
-        <AppShell role="guru" title="Riwayat Jurnal" hint="Semua jurnal yang pernah tersimpan">
+        <AppShell role="guru" title="Riwayat Jurnal" hint="Jurnal harian — pilih tanggal untuk melihat snapshot hari itu">
           <div className="space-y-2"><Skeleton className="h-32 w-full" /><Skeleton className="h-32 w-full" /></div>
         </AppShell>
       </Guard>
@@ -208,29 +257,36 @@ export default function RiwayatPage() {
   if (!rows.length) {
     return (
       <Guard roles={["guru"]}>
-        <AppShell role="guru" title="Riwayat Jurnal" hint="Semua jurnal yang pernah tersimpan">
-          <Empty title="Belum ada jurnal" hint="Isi jurnal pertama lewat menu Jurnal Baru." />
+        <AppShell role="guru" title="Riwayat Jurnal" hint="Jurnal harian — pilih tanggal untuk melihat snapshot hari itu">
+          <DayNav tanggal={tanggal} today={today} onChange={setTanggal} onShift={shiftDay} />
+          <Empty
+            title={tanggal === today ? "Belum ada jurnal hari ini" : `Tidak ada jurnal ${tanggal.slice(8)}/${tanggal.slice(5, 7)}`}
+            hint={tanggal === today
+              ? "Wajar bila belum mengisi — buat lewat menu Jurnal Baru."
+              : "Hari lalu tampil snapshot hari itu; coba tanggal lain."}
+          />
         </AppShell>
       </Guard>
     );
   }
   return (
     <Guard roles={["guru"]}>
-      <AppShell role="guru" title="Riwayat Jurnal" hint="Lengkap dengan foto, materi & TTD">
+      <AppShell role="guru" title="Riwayat Jurnal" hint="Jurnal harian — lengkap dengan foto, materi & TTD">
         <div className="no-print mb-3 flex flex-wrap items-end gap-2">
-          <label className="min-w-0 flex-1 text-sm font-semibold text-slate-700 sm:max-w-[220px] sm:flex-none">Bulan
-            <input type="month" value={bulan} onChange={(e) => setBulan(e.target.value)} className="mt-1.5 block w-full max-w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal" />
-          </label>
+          <DayNav tanggal={tanggal} today={today} onChange={setTanggal} onShift={shiftDay} />
           <Button variant="outline" className="w-full sm:w-auto" disabled={expBusy} onClick={exportPdf}>
             {expBusy ? <Spinner /> : <Download size={15} />} {expBusy ? `Memproses…${expProg ? ` ${expProg}` : ""}` : "Export PDF"}
           </Button>
         </div>
         <div className="space-y-3">
-          {visible.map((j) => (
+          {visible.map((j) => {
+            const w = jamIsi(dibuat(j));
+            return (
             <Card key={j.id} className="overflow-hidden">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="font-display font-bold">{j.subject} · {j.class}</h2>
                 <Badge tone="blue">{j.date}</Badge>
+                {w && <Badge tone="slate">Diisi {w}</Badge>}
                 <Badge tone={tone(j.teacher_status) as any}>Saya: {j.teacher_status}</Badge>
                 <Badge tone="green">H:{j.stats.hadir}</Badge>
                 <Badge tone="amber">S:{j.stats.sakit}</Badge>
@@ -274,13 +330,9 @@ export default function RiwayatPage() {
                 </Button>
               </div>
             </Card>
-          ))}
+            );
+          })}
         </div>
-        {visible.length < rows.length && (
-          <Button variant="outline" className="mt-3 w-full" onClick={muatLama}>
-            Muat jurnal lebih lama ({rows.length - visible.length} disembunyikan)
-          </Button>
-        )}
         {zoom && <Lightbox src={zoom.src} label={zoom.label} onClose={() => setZoom(null)} />}
         <Modal open={!!editing} onClose={() => setEditing(null)} title={`Ubah absensi — ${editing?.subject} · ${editing?.class}`}>
           <p className="text-sm text-slate-500">{editing?.date} · hanya absensi siswa yang bisa diubah.</p>

@@ -4,7 +4,8 @@ import { AuthProvider } from "@/src/lib/auth";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Jurnal Sekolah — SMK Nusantara Cerdas",
+  // Judul generik (tanpa hardcode nama sekolah — nama dinamis tampil di sidebar).
+  title: "Jurnal Sekolah",
   description: "Jurnal mengajar & absensi guru: cepat di HP, rapi di desktop.",
 };
 
