@@ -116,7 +116,7 @@ function Wizard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allowedClassIds]);
   const classOpts = useMemo(
-    () => (allowedClassIds ? classes.filter((c) => allowedClassIds.includes(c.id)) : classes),
+    () => [...(allowedClassIds ? classes.filter((c) => allowedClassIds.includes(c.id)) : classes)].sort(byName()),
     [classes, allowedClassIds]
   );  const cocokSiswa = useMemo(() => {
     const q = cariSiswa.trim().toLowerCase();
@@ -415,7 +415,7 @@ function Wizard() {
                   ) : (
                     <Select label="Mata pelajaran" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
                       <option value="">Pilih mapel</option>
-                      {subjects.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.code})</option>)}
+                      {[...subjects].sort(byName()).map((s) => <option key={s.id} value={s.id}>{s.name} ({s.code})</option>)}
                     </Select>
                   )}
                   <div>

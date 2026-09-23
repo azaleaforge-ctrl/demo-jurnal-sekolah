@@ -8,6 +8,7 @@ import { ImportExcel, type ImportResult } from "@/src/components/import-excel";
 import { Input, Select } from "@/src/components/ui/input";
 import { useCollection, batchAdd, addDocTo, type Doc } from "@/src/lib/db";
 import { students as fbStudents, classes as fbClasses } from "@/src/lib/mock";
+import { byName } from "@/src/lib/utils";
 
 type Siswa = { id: string; nisn: string; name: string; class_id: string };
 type Draft = { nisn: string; name: string; class_name: string };
@@ -112,9 +113,9 @@ export default function SiswaPage() {
             <>
               <Input label="NISN" value={(v as any).nisn || ""} onChange={(e) => set({ ...v, nisn: e.target.value })} />
               <Input label="Nama lengkap" value={(v as any).name || ""} onChange={(e) => set({ ...v, name: e.target.value })} />
-              <Select label="Kelas" value={(v as any).class_id || ""} onChange={(e) => set({ ...v, class_id: e.target.value })}>
+                <Select label="Kelas" value={(v as any).class_id || ""} onChange={(e) => set({ ...v, class_id: e.target.value })}>
                 <option value="">Pilih kelas</option>
-                {kelas.rows.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                {[...kelas.rows].sort(byName()).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </Select>
               <p className="text-xs text-slate-500">Belum ada kelas? Kelola di menu <Link href="/admin/kelas" className="font-semibold text-brand-600 hover:underline">Kelas →</Link></p>
             </>

@@ -243,7 +243,7 @@ export default function KepsekSiswaPage() {
               <label className="block text-sm font-semibold text-slate-700">Kelas
                 <select value={classId} onChange={(e) => { setClassId(e.target.value); setStudentId(""); setShown(PAGE); }} className="mt-1.5 block w-full max-w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal">
                   <option value="">Semua kelas</option>
-                  {dir.classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  {[...dir.classes].sort(byName()).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </label>
               <label className="block text-sm font-semibold text-slate-700">Siswa {classId ? "(kelas terpilih)" : "(semua kelas)"}

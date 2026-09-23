@@ -147,7 +147,7 @@ export default function AdminHome() {
           </div>
           <select value={fClass} onChange={(e) => setFClass(e.target.value)} className="max-w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
             <option value="">Semua kelas</option>
-            {dir.classes.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+            {[...dir.classes].sort(byName()).map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
           </select>
             <select value={fTeacher} onChange={(e) => setFTeacher(e.target.value)} className="max-w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
             <option value="">Semua guru</option>

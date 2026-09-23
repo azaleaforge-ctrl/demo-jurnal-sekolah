@@ -150,9 +150,9 @@ export default function KepsekHome() {
               <button onClick={() => setTanggal(today)} className="rounded-lg bg-brand-50 px-2.5 py-1.5 text-xs font-bold text-brand-600 hover:bg-brand-100">Hari ini</button>
             )}
           </div>
-          <select value={fClass} onChange={(e) => setFClass(e.target.value)} aria-label="Filter kelas" className="max-w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
+            <select value={fClass} onChange={(e) => setFClass(e.target.value)} aria-label="Filter kelas" className="max-w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
             <option value="">Semua kelas</option>
-            {dir.classes.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+            {[...dir.classes].sort(byName()).map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
           </select>
             <select value={fTeacher} onChange={(e) => setFTeacher(e.target.value)} aria-label="Filter guru" className="max-w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
             <option value="">Semua guru</option>

@@ -7,7 +7,7 @@ import { AppShell } from "@/src/components/layout";
 import { Card } from "@/src/components/ui/card";
 import { Button } from "@/src/components/ui/button";
 import { Skeleton, Spinner } from "@/src/components/ui/misc";
-import { cn } from "@/src/lib/utils";
+import { cn, byName } from "@/src/lib/utils";
 import { downloadRekap, filterRekap, attachCreatedAt, type RekapTipe, type ExportDir, type PeriodeMode } from "@/src/lib/export";
 import { getSharedFeed, mapJournalEntry, byNewest, normalizeRemote, type FeedEntry } from "@/src/lib/feed";
 import { subscribeFeedJournals, useDirectory, getSetting, mockSetting } from "@/src/lib/db";
@@ -102,6 +102,11 @@ export default function ExportPage() {
     return xdir.students.filter((s) => clsNames.has(xdir.classes.find((c) => c.id === s.class_id)?.name || "")).length;
   }, [rows, xdir]);
 
+  // Opsi dropdown selalu A-Z (tanpa mutate) + label "Nama, Gelar" untuk guru.
+  const namaGelarT = (t: { name: string; gelar?: string }) => (String(t.gelar || "").trim() ? `${t.name}, ${String(t.gelar).trim()}` : t.name);
+  const guruOpts = useMemo(() => [...xdir.teachers].sort(byName()), [xdir.teachers]);
+  const kelasOpts = useMemo(() => [...xdir.classes].sort(byName()), [xdir.classes]);
+
   async function run(format: "xlsx" | "pdf") {
     if (busy) return;
     // Filter terkunci §3E: guru → 1 guru wajib; siswa → 1 kelas wajib.
@@ -172,14 +177,14 @@ export default function ExportPage() {
               <label className="min-w-0 text-sm font-semibold text-slate-700">Kelas (wajib)
                 <select value={classId} onChange={(e) => setClassId(e.target.value)} className="mt-1.5 block w-full max-w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal">
                   <option value="">Pilih kelas…</option>
-                  {xdir.classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  {kelasOpts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </label>
             ) : (
               <label className="min-w-0 text-sm font-semibold text-slate-700">Guru (wajib)
                 <select value={teacherId} onChange={(e) => setTeacherId(e.target.value)} className="mt-1.5 block w-full max-w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal">
                   <option value="">Pilih guru…</option>
-                  {xdir.teachers.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  {guruOpts.map((t) => <option key={t.id} value={t.id}>{namaGelarT(t)}</option>)}
                 </select>
               </label>
             )}
@@ -187,7 +192,7 @@ export default function ExportPage() {
           <div className="mt-3 flex flex-wrap gap-2 rounded-xl bg-slate-50 px-4 py-3 text-sm">
             <span><b>{rows.length}</b> jurnal</span><span className="text-slate-300">·</span>
             {tipe === "guru" ? (
-              <span className="truncate"><b>{xdir.teachers.find((t) => t.id === teacherId)?.name || "—"}</b></span>
+              <span className="truncate"><b>{(() => { const t = xdir.teachers.find((x) => x.id === teacherId); return t ? namaGelarT(t) : "—"; })()}</b></span>
             ) : (
               <span><b>{siswaCount}</b> siswa terdampak</span>
             )}

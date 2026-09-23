@@ -120,12 +120,12 @@ export default function GuruPage() {
               <Input label="Gelar" placeholder="mis. S.Pd" value={(v as any).gelar || ""} onChange={(e) => set({ ...v, gelar: e.target.value })} />
               <Select label="Mapel" value={(v as any).subject_ids?.[0] || ""} onChange={(e) => set({ ...v, subject_ids: e.target.value ? [e.target.value] : [] })}>
                 <option value="">Pilih mapel</option>
-                {mapel.rows.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.code})</option>)}
+                {[...mapel.rows].sort(byName()).map((s) => <option key={s.id} value={s.id}>{s.name} ({s.code})</option>)}
               </Select>
               <div>
                 <span className="mb-1.5 block text-sm font-semibold text-slate-700">Kelas Mengajar</span>
                 <div className="grid gap-1.5">
-                  {kelas.rows.map((c) => {
+                  {[...kelas.rows].sort(byName()).map((c) => {
                     const on = ((v as any).class_ids || []).includes(c.id);
                     return (
                       <label key={c.id} className="flex min-h-[44px] cursor-pointer items-center gap-2.5 rounded-xl border border-slate-200 px-3.5 text-sm sm:min-h-0">
