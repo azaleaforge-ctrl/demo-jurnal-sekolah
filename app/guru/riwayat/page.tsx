@@ -86,15 +86,44 @@ export default function RiwayatPage() {
   }, []);
 
   const reloadMine = useCallback(() => {
+    // Arsip lokal di-namespace per akun: my-journals-<uid>. Kunci lama bersama
+    // ("my-journals") dimigrasi sekali: entri milik sendiri dipindah ke kunci
+    // namespaced per teacher_id, sisanya diabaikan, lalu kunci lama dihapus.
+    const key = userId ? `my-journals-${userId}` : "my-journals";
     try {
-      const arr = JSON.parse(localStorage.getItem("my-journals") || "[]");
-      setMine(Array.isArray(arr) ? arr : []);
+      const rawLocal = JSON.parse(localStorage.getItem(key) || "[]");
+      let arr = Array.isArray(rawLocal) ? rawLocal : [];
+      if (userId) {
+        try {
+          const legacy = JSON.parse(localStorage.getItem("my-journals") || "[]");
+          if (Array.isArray(legacy) && legacy.length) {
+            const ids = new Set(arr.map((e: any) => e.id));
+            const groups = new Map<string, any[]>();
+            legacy.forEach((e: any) => {
+              const uid = e?.teacher_id || (e?.teacher && e.teacher === userName ? userId : null);
+              if (!uid) return;
+              if (!groups.has(uid)) groups.set(uid, []);
+              groups.get(uid)!.push(e);
+            });
+            groups.forEach((list, uid) => {
+              const k = `my-journals-${uid}`;
+              const cur = JSON.parse(localStorage.getItem(k) || "[]");
+              const have = new Set((Array.isArray(cur) ? cur : []).map((e: any) => e.id));
+              const merged = [...list.filter((e: any) => !have.has(e.id)), ...(Array.isArray(cur) ? cur : [])];
+              localStorage.setItem(k, JSON.stringify(merged));
+              if (uid === userId) arr = merged;
+            });
+            localStorage.removeItem("my-journals");
+          }
+        } catch {}
+      }
+      setMine(arr);
     } catch {
       setMine([]);
     } finally {
       setMineReady(true);
     }
-  }, []);
+  }, [userId, userName]);
   useEffect(() => { reloadMine(); }, [reloadMine]);
 
   // Geser tanggal YYYY-MM-DD ±n hari (navigasi hari).
@@ -131,6 +160,12 @@ export default function RiwayatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [dir.classes, dir.subjects, dir.users, dir.materials, dir.schedules]);
 
+  // Filter kepemilikan KETAT: teacher_id == id login. Fallback nama hanya bila
+  // id kosong DAN nama persis milik sendiri — tak pernah cocok nama orang lain.
+  const isMine = (r: any) => userId
+    ? r?.teacher_id === userId
+    : !r?.teacher_id && !!userName && r?.teacher === userName;
+
   // Hanya jurnal milik guru pada tanggal terpilih (filter guru di client — query tetap 1 field).
   const remote: Row[] = useMemo(() => {
     if (!feedRaw) return [];
@@ -138,8 +173,9 @@ export default function RiwayatPage() {
     return feedRaw.js
       .filter((j) => !seen.has(j.id))
       .filter((j) => (j.date || "") === tanggal)
-      .filter((j) => (userId && (j as any).teacher_id === userId) || ((j as any).teacher === userName))
+      .filter((j) => isMine(j))
       .map((j) => ({ ...mapJournalEntry(j, dirLists, feedRaw.atts), teacher: userName || "Saya" } as Row));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [feedRaw, mine, dirLists, tanggal, userId, userName]);
 
   // created_at per jurnal (otomatis saat dibuat; ubah absensi tak meresetnya).
@@ -168,13 +204,15 @@ export default function RiwayatPage() {
   const ready = mineReady && (feedRaw !== null || demo);
 
   const rows: Row[] = useMemo(() => {
-    const fallback = mine.length || remote.length || !demo
+    // Fallback demo disaring milik guru itu saja (nama persis). Akun baru
+    // tanpa jurnal = kosong wajar, bukan jurnal orang lain.
+    const fallback = mine.length || remote.length || !demo || !userName
       ? []
-      : journals.filter((j) => (j.date || "") === tanggal).map((j) => ({
+      : journals.filter((j) => j.teacher === userName).map((j) => ({
           ...j, teacher_status: "hadir" as const, leave_note: undefined,
           sick_letter_name: undefined, sick_letter_note: undefined,
         }));
-    return [...mine, ...remote, ...fallback]
+    return [...mine.filter(isMine), ...remote, ...fallback]
       .filter((r: any) => (r.date || "") === tanggal)
       .map((r: any) => ({ ...r, stats: resolveStats(r.attendances, r.stats) }))
       // Terbaru di atas: created_at desc (semua sumber), tanpa jam selalu di bawah,
@@ -186,7 +224,8 @@ export default function RiwayatPage() {
         return String(b.date || "").localeCompare(String(a.date || "")) ||
           String(b.id || "").localeCompare(String(a.id || ""));
       });
-  }, [mine, remote, demo, tanggal, createdMap]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mine, remote, demo, tanggal, createdMap, userId, userName]);
 
   // Mode harian: yang tampil = hari terpilih saja (tanpa "muat lagi" bulanan).
   const visible = rows;
@@ -250,7 +289,8 @@ export default function RiwayatPage() {
     }
     const patch = { attendances: list, stats };
     try {
-      for (const key of ["my-journals", "journals-feed"]) {
+      // Arsip lokal milik sendiri (namespaced); journals-feed tetap bersama untuk dashboard.
+      for (const key of [userId ? `my-journals-${userId}` : "my-journals", "journals-feed"]) {
         const arr = JSON.parse(localStorage.getItem(key) || "[]");
         const i = arr.findIndex((x: any) => x.id === editing.id);
         if (i >= 0) { arr[i] = { ...arr[i], ...patch }; localStorage.setItem(key, JSON.stringify(arr)); }

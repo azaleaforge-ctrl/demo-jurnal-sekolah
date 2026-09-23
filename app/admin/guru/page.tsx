@@ -5,12 +5,12 @@ import { Guard } from "@/src/lib/auth";
 import { AppShell } from "@/src/components/layout";
 import { Crud } from "@/src/components/crud";
 import { ImportExcel, type ImportResult } from "@/src/components/import-excel";
-import { Input } from "@/src/components/ui/input";
-import { useCollection, batchAdd, updateDocById } from "@/src/lib/db";
-import { teachers as fbTeachers } from "@/src/lib/mock";
+import { Input, Select } from "@/src/components/ui/input";
+import { useCollection, batchAdd, updateDocById, type Doc } from "@/src/lib/db";
+import { teachers as fbTeachers, subjects as fbSubjects, classes as fbClasses } from "@/src/lib/mock";
 import { byName } from "@/src/lib/utils";
 
-type Guru = { id: string; name: string; gelar?: string; email: string; role: string; subject_ids: string[]; password?: string };
+type Guru = { id: string; name: string; gelar?: string; email: string; role: string; subject_ids: string[]; class_ids?: string[]; password?: string };
 type Draft = { name: string; gelar: string };
 
 const randPw = () => Math.random().toString(36).slice(2, 12);
@@ -38,6 +38,16 @@ export default function GuruPage() {
   }, [guru.remote, guru.loading, users]);
 
   const sorted = useMemo(() => [...users].sort(byName()), [users]);
+  const mapel = useCollection<Doc>("subjects", { fallback: fbSubjects as Doc[] });
+  const kelas = useCollection<Doc>("classes", { order: ["name", "asc"], fallback: fbClasses as Doc[] });
+  const mapelName = (id?: string) => {
+    const s = mapel.rows.find((x) => x.id === id);
+    return s ? `${s.name} (${s.code})` : "–";
+  };
+  const kelasNames = (ids?: string[]) => (ids || [])
+    .map((id) => kelas.rows.find((c) => c.id === id)?.name || id)
+    .filter(Boolean)
+    .join(", ") || "–";
 
   // Impor ketat: hanya NAMA + GELAR yang dibaca (email dibuat di menu Akun, bukan impor).
   // Baris tanpa nama dilewati dan terhitung di laporan "dilewati".
@@ -79,10 +89,12 @@ export default function GuruPage() {
           title="Guru" initial={[]} value={sorted} onChange={guru.setRows}
           loading={guru.loading}
           persist={{ ...guru.persist, create: (item: any) => guru.persist.create({ ...item, role: "guru", password: item.password || randPw() }) }}
-          head={["Nama", "Gelar", "Aksi"]}
+          head={["Nama", "Gelar", "Mapel", "Kelas Mengajar", "Aksi"]}
           cols={[
             { key: "name", label: "Nama", render: (r: any) => <span className="block max-w-[42vw] truncate font-semibold sm:max-w-none" title={namaGelar(r)}>{namaGelar(r)}</span> },
             { key: "gelar", label: "Gelar", render: (r: any) => String(r.gelar || "").trim() || "–" },
+            { key: "subject_ids", label: "Mapel", render: (r: any) => mapelName((r.subject_ids || [])[0]) },
+            { key: "class_ids", label: "Kelas Mengajar", render: (r: any) => <span className="block max-w-[42vw] truncate sm:max-w-none" title={kelasNames(r.class_ids)}>{kelasNames(r.class_ids)}</span> },
           ]}
           toolbarExtra={
             <>
@@ -106,6 +118,31 @@ export default function GuruPage() {
             <>
               <Input label="Nama lengkap" value={(v as any).name || ""} onChange={(e) => set({ ...v, name: e.target.value })} />
               <Input label="Gelar" placeholder="mis. S.Pd" value={(v as any).gelar || ""} onChange={(e) => set({ ...v, gelar: e.target.value })} />
+              <Select label="Mapel" value={(v as any).subject_ids?.[0] || ""} onChange={(e) => set({ ...v, subject_ids: e.target.value ? [e.target.value] : [] })}>
+                <option value="">Pilih mapel</option>
+                {mapel.rows.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.code})</option>)}
+              </Select>
+              <div>
+                <span className="mb-1.5 block text-sm font-semibold text-slate-700">Kelas Mengajar</span>
+                <div className="grid gap-1.5">
+                  {kelas.rows.map((c) => {
+                    const on = ((v as any).class_ids || []).includes(c.id);
+                    return (
+                      <label key={c.id} className="flex min-h-[44px] cursor-pointer items-center gap-2.5 rounded-xl border border-slate-200 px-3.5 text-sm sm:min-h-0">
+                        <input
+                          type="checkbox" checked={on} className="size-5 shrink-0 accent-brand-600"
+                          onChange={(e) => {
+                            const cur = (v as any).class_ids || [];
+                            set({ ...v, class_ids: e.target.checked ? [...cur, c.id] : cur.filter((x: string) => x !== c.id) });
+                          }}
+                        />
+                        <span className="font-medium">{c.name}</span>
+                      </label>
+                    );
+                  })}
+                  {kelas.rows.length === 0 && <p className="text-xs text-slate-500">Belum ada kelas — tambah dulu di menu Kelas.</p>}
+                </div>
+              </div>
             </>
           )}
         />

@@ -105,7 +105,20 @@ function Wizard() {
   const sigRef = useRef<any>(null);
 
   const siswa = useMemo(() => students.filter((s) => !classId || s.class_id === classId).sort(byName()), [classId]);
-  const cocokSiswa = useMemo(() => {
+  // Mapel & kelas mengajar dari doc guru (admin): mapel terkunci, kelas hanya yang diajar.
+  // Doc lama tanpa data → fallback bebas (kompatibel mundur).
+  const myDoc = useMemo(() => d.users.find((u) => user?.id && u.id === user.id) as any, [d.users, user?.id]);
+  const lockedSubjectId = myDoc?.subject_ids?.[0] || "";
+  const allowedClassIds: string[] | null = myDoc?.class_ids?.length ? myDoc.class_ids : null;
+  useEffect(() => { if (lockedSubjectId) setSubjectId(lockedSubjectId); }, [lockedSubjectId]);
+  useEffect(() => {
+    if (allowedClassIds && classId && !allowedClassIds.includes(classId)) setClassId("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allowedClassIds]);
+  const classOpts = useMemo(
+    () => (allowedClassIds ? classes.filter((c) => allowedClassIds.includes(c.id)) : classes),
+    [classes, allowedClassIds]
+  );  const cocokSiswa = useMemo(() => {
     const q = cariSiswa.trim().toLowerCase();
     if (!q) return siswa;
     return siswa.filter((s) => `${s.name} ${s.nisn || ""}`.toLowerCase().includes(q));
@@ -387,12 +400,24 @@ function Wizard() {
                   <h2 className="font-display text-lg font-bold">Kelas & mapel apa hari ini?</h2>
                   <Select label="Kelas" value={classId} onChange={(e) => setClassId(e.target.value)}>
                     <option value="">Pilih kelas</option>
-                    {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    {classOpts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </Select>
-                  <Select label="Mata pelajaran" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
-                    <option value="">Pilih mapel</option>
-                    {subjects.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.code})</option>)}
-                  </Select>
+                  {allowedClassIds && classOpts.length === 0 && (
+                    <p className="text-xs text-slate-500">Belum ada kelas mengajar — minta admin mengaturnya di Data Guru.</p>
+                  )}
+                  {lockedSubjectId ? (
+                    <div>
+                      <span className="mb-1.5 block text-sm font-semibold text-slate-700">Mata pelajaran</span>
+                      <p className="rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm font-semibold">
+                        {mapelName} <span className="font-normal text-slate-400">· terkunci dari admin</span>
+                      </p>
+                    </div>
+                  ) : (
+                    <Select label="Mata pelajaran" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
+                      <option value="">Pilih mapel</option>
+                      {subjects.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.code})</option>)}
+                    </Select>
+                  )}
                   <div>
                     <span className="mb-1.5 block text-sm font-semibold text-slate-700">Status kehadiran saya sesi ini</span>
                     <div className="grid grid-cols-3 gap-1.5">
