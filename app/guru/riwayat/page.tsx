@@ -146,7 +146,23 @@ export default function RiwayatPage() {
   // "YYYY-MM-DD HH:mm:ss" → "HH:MM"; kosong → "" (badge disembunyikan).
   const createdMap = useMemo(() => new Map((feedRaw?.js || []).map((j) => [j.id, String((j as any).created_at || "")])), [feedRaw]);
   const dibuat = (r: { id: string }) => createdMap.get(r.id) ?? String((r as any).created_at || "");
-  const jamIsi = (created: string) => (created.split(" ")[1] || "").slice(0, 5);
+  const jamIsi = (created: string) => {
+    const m = /(\d{2}):(\d{2})/.exec(String(created || ""));
+    return m ? `${m[1]}:${m[2]}` : "";
+  };
+  // Epoch-ms dari created_at ragam format ("YYYY-MM-DD HH:mm:ss", ISO, angka detik/ms).
+  // Kosong/invalid → -Infinity agar selalu di bawah entri yang berjam.
+  const jamMs = (v: unknown): number => {
+    if (typeof v === "number" && Number.isFinite(v)) return v < 1e12 ? v * 1000 : v;
+    const s = String(v ?? "").trim();
+    if (!s) return -Infinity;
+    if (/^\d+$/.test(s)) {
+      const n = Number(s);
+      return Number.isFinite(n) ? (n < 1e12 ? n * 1000 : n) : -Infinity;
+    }
+    const ms = Date.parse(s.includes("T") ? s : s.replace(" ", "T"));
+    return Number.isFinite(ms) ? ms : -Infinity;
+  };
 
   // Skeleton hanya sebelum payload pertama; ganti tanggal update diam-diam.
   const ready = mineReady && (feedRaw !== null || demo);
@@ -161,11 +177,15 @@ export default function RiwayatPage() {
     return [...mine, ...remote, ...fallback]
       .filter((r: any) => (r.date || "") === tanggal)
       .map((r: any) => ({ ...r, stats: resolveStats(r.attendances, r.stats) }))
-      // Terbaru di atas: created_at desc, fallback date desc, lalu id.
-      .sort((a: any, b: any) =>
-        String(createdMap.get(a.id) ?? a.created_at ?? "").localeCompare(String(createdMap.get(b.id) ?? b.created_at ?? "")) ||
-        String(b.date || "").localeCompare(String(a.date || "")) ||
-        String(b.id || "").localeCompare(String(a.id || "")));
+      // Terbaru di atas: created_at desc (semua sumber), tanpa jam selalu di bawah,
+      // tiebreak date desc lalu id desc.
+      .sort((a: any, b: any) => {
+        const ma = jamMs(createdMap.get(a.id) ?? a.created_at);
+        const mb = jamMs(createdMap.get(b.id) ?? b.created_at);
+        if (mb !== ma) return mb > ma ? 1 : -1;
+        return String(b.date || "").localeCompare(String(a.date || "")) ||
+          String(b.id || "").localeCompare(String(a.id || ""));
+      });
   }, [mine, remote, demo, tanggal, createdMap]);
 
   // Mode harian: yang tampil = hari terpilih saja (tanpa "muat lagi" bulanan).
