@@ -85,7 +85,11 @@ export default function GuruPage() {
             { key: "gelar", label: "Gelar", render: (r: any) => String(r.gelar || "").trim() || "–" },
           ]}
           toolbarExtra={
-            <ImportExcel<Draft>
+            <>
+              <span className="inline-flex min-h-[44px] items-center rounded-xl bg-slate-100 px-3.5 text-sm font-bold text-slate-600 sm:min-h-0" title="Total guru terdaftar (realtime)">
+                {guru.loading ? "…" : `${sorted.length} guru`}
+              </span>
+              <ImportExcel<Draft>
               templateUrl="/admin/users/import-template"
               templateName="template-guru.xlsx"
               templateHeaders={["nama", "gelar"]}
@@ -96,6 +100,7 @@ export default function GuruPage() {
               toPreviewRow={(t) => [t.name, t.gelar || "–"]}
               onConfirm={confirmImport}
             />
+            </>
           }
           renderForm={(v, set) => (
             <>

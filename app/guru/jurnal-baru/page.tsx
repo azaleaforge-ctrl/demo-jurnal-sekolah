@@ -501,12 +501,6 @@ function Wizard() {
                       {sigStale && <span className="text-xs font-bold text-amber-600">Berubah — simpan ulang</span>}
                     </div>
                     <p className="mt-1 text-xs text-slate-400">Tanda tangani di kotak dengan jari / mouse.</p>
-                    {sigPreview && (
-                      <button type="button" onClick={() => setZoom({ src: sigPreview, label: "Tanda tangan digital" })} title="Klik untuk perbesar" className="mt-2 flex min-w-0 items-center gap-2 overflow-hidden rounded-xl border border-slate-100 bg-white p-2 text-left">
-                        <img src={sigPreview} alt="Pratinjau TTD" className="h-16 min-w-0 flex-1 cursor-zoom-in rounded-lg bg-slate-50 object-contain" />
-                        <span className="shrink-0 text-xs font-semibold text-emerald-600">Live preview ✓</span>
-                      </button>
-                    )}
                   </div>
                 </div>
               )}

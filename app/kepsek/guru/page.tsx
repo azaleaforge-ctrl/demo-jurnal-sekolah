@@ -187,6 +187,9 @@ export default function KepsekGuruPage() {
               {cariGuru.trim() && guruOpts.length === 0 && (
                 <p className="mt-1.5 text-xs text-slate-500">Tidak ada guru yang cocok dengan “{cariGuru.trim()}”.</p>
               )}
+              {guruOpts.length > 0 && (
+                <p className="mt-1.5 text-xs text-slate-500">{guruOpts.length} guru{cariGuru.trim() ? " cocok" : " total"}</p>
+              )}
             </div>
             <div className="min-w-0">
               <span className="mb-1.5 block text-sm font-semibold text-slate-700">Periode</span>
