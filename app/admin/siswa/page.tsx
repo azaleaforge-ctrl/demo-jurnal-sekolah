@@ -63,7 +63,11 @@ export default function SiswaPage() {
             { key: "class_id", label: "Kelas", render: (r: any) => kelas.rows.find((c) => c.id === r.class_id)?.name || r.class_id },
           ]}
           toolbarExtra={
-            <ImportExcel<Draft>
+            <>
+              <span className="inline-flex min-h-[44px] items-center rounded-xl bg-slate-100 px-3.5 text-sm font-bold text-slate-600 sm:min-h-0" title="Total siswa terdaftar (realtime)">
+                {siswa.loading ? "…" : `${siswa.rows.length} siswa`}
+              </span>
+              <ImportExcel<Draft>
               templateUrl="/admin/students/template"
               templateName="template-siswa.xlsx"
               templateHeaders={["nisn", "nama", "kelas"]}
@@ -74,6 +78,7 @@ export default function SiswaPage() {
               toPreviewRow={(t) => [t.nisn, t.name, kelas.rows.find((c) => c.id === t.class_id)?.name || t.class_id]}
               onConfirm={confirmImport}
             />
+            </>
           }
           renderForm={(v, set) => (
             <>

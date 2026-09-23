@@ -211,6 +211,16 @@ export default function KepsekSiswaPage() {
     return kept.sort(byName());
   }, [base, status, dir.classes]);
 
+  // Hitungan siswa mengikuti filter kelas/siswa/cari yang aktif (dari dir.students, realtime).
+  const siswaCount = useMemo(() => {
+    const q = cari.trim().toLowerCase();
+    return dir.students.filter((s) =>
+      (!classId || s.class_id === classId) &&
+      (!studentId || s.id === studentId) &&
+      (!q || `${s.name} ${s.nisn || ""}`.toLowerCase().includes(q))).length;
+  }, [dir.students, classId, studentId, cari]);
+  const kelasAktif = classId ? dir.classes.find((c) => c.id === classId)?.name || "" : "";
+
   const rentang = `${tglPendek(dari)} s/d ${tglPendek(sampai)}`;
 
   // Jurnal rentang ini yang tak punya rincian attendances (tak bisa dipecah per siswa).
@@ -281,6 +291,7 @@ export default function KepsekSiswaPage() {
             </div>
           </div>
           <div className="mt-3 flex flex-wrap gap-2 rounded-xl bg-slate-50 px-4 py-3 text-sm">
+            <span><b>{siswaCount}</b> siswa{kelasAktif ? ` di ${kelasAktif}` : " semua kelas"}</span><span className="text-slate-300">·</span>
             <span><b>{isDaily ? base.length : agregat.length}</b> {isDaily ? "baris" : "siswa"}</span><span className="text-slate-300">·</span>
             <span>H <b>{ringkas.hadir}</b></span><span className="text-slate-300">·</span>
             <span>S <b>{ringkas.sakit}</b></span><span className="text-slate-300">·</span>

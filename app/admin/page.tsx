@@ -135,11 +135,12 @@ export default function AdminHome() {
 
         {busy ? (
           <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-3">
-            {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-24 w-full" />)}
+            {Array.from({ length: 7 }).map((_, i) => <Skeleton key={i} className="h-24 w-full" />)}
           </div>
         ) : (
           <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-3">
             <Stat label="Total guru" value={String(summary?.guru.total ?? "…")} hint="Akun guru aktif" />
+            <Stat label="Jumlah Siswa" value={dirLoading ? "…" : String(dir.students.length)} hint="Terdaftar di sistem" />
             <Stat label={`Sudah isi ${tanggal.slice(5)}`} value={String((summary?.guru.hadir ?? 0) + (summary?.guru.izin ?? 0) + (summary?.guru.sakit ?? 0))} hint="Jurnal masuk hari itu" />
             <Stat label="Belum isi" value={String(summary?.guru.belum_isi ?? "…")} hint="Perlu diingatkan" />
             <Stat label="% hadir guru" value={`${gPct}%`} hint={`Tanggal ${tanggal.slice(5)}`} />
